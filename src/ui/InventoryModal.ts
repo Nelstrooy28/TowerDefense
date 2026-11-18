@@ -210,12 +210,12 @@ export class InventoryModal {
     if (this.activeTab === 'unit') {
       const unlockedSkins = SaveManager.getUnlockedPotSkins(unit.id);
       const skinLabels: Record<PotSkinId, string> = {
-        default: 'Classic',
-        striped_ceramic: 'Ceramic (M5)',
-        mossy_stone: 'Mossy (M5)',
-        crystal: 'Crystal (M10)',
-        golden: 'Golden (M10)',
-        galaxy: 'Galaxy (M10)',
+        default: 'Natural Roots',
+        striped_ceramic: 'Quartz Stones (M5)',
+        mossy_stone: 'Mossy Bark (M5)',
+        crystal: 'Crystal Geode (M10)',
+        golden: 'Golden Roots (M10)',
+        galaxy: 'Galaxy Roots (M10)',
       };
       pane.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -232,7 +232,7 @@ export class InventoryModal {
             Fuse 3 Copies (${owned.copies - 1} spare)
           </button>
         </div>
-        <div style="font-size:14px;font-weight:700;">Pot Skins:</div>
+        <div style="font-size:14px;font-weight:700;">Root Base Skins:</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           ${(['default', 'striped_ceramic', 'mossy_stone', 'crystal', 'golden', 'galaxy'] as PotSkinId[])
             .map((skin) => {

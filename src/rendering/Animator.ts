@@ -121,7 +121,8 @@ export class TowerAnimator {
 
     // Per-unit idle personalities (§6.1)
     if (unitId === 'tomato_tosser') {
-      rig.headTurret.position.y = 0.65 + beatPulse * 0.09;
+      const baseY = (rig.headTurret.userData.baseY as number | undefined) ?? 0.72;
+      rig.headTurret.position.y = baseY + beatPulse * 0.09;
     } else if (unitId === 'cactus_striker') {
       const bristle = hasTarget ? 1.07 + 0.04 * Math.sin(time * 9) : 1.0;
       rig.headTurret.scale.setScalar(bristle);

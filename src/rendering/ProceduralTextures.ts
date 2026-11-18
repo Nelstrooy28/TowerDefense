@@ -277,33 +277,52 @@ class ProceduralTexturesImpl {
     ctx.arc(64, 58, 44, 0, Math.PI * 2);
     ctx.fill();
 
-    // Terracotta pot base
-    ctx.fillStyle = '#c26a3d';
-    ctx.strokeStyle = '#1f2937';
-    ctx.lineWidth = 4;
+    // Natural Grassy Turf Hillock & Ground Roots (no flowerpot)
+    ctx.fillStyle = '#573b26';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 3.5;
     ctx.beginPath();
-    ctx.moveTo(40, 84);
-    ctx.lineTo(88, 84);
-    ctx.lineTo(82, 114);
-    ctx.lineTo(46, 114);
+    ctx.ellipse(64, 108, 42, 16, 0, Math.PI, 0, false);
+    ctx.lineTo(106, 120);
+    ctx.lineTo(22, 120);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = '#d97742';
-    ctx.fillRect(36, 78, 56, 10);
-    ctx.strokeRect(36, 78, 56, 10);
+    // Spreading roots gripping the soil
+    ctx.strokeStyle = '#6b4423';
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(64, 90);
+    ctx.quadraticCurveTo(46, 98, 34, 112);
+    ctx.moveTo(64, 90);
+    ctx.quadraticCurveTo(82, 98, 94, 112);
+    ctx.moveTo(64, 92);
+    ctx.lineTo(64, 112);
+    ctx.stroke();
+
+    // Basal green leaves
+    ctx.fillStyle = '#22c55e';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2.5;
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(64 + dir * 20, 92, 14, 6, dir * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
 
     const primary = '#' + unit.primaryColor.toString(16).padStart(6, '0');
     const secondary = '#' + unit.secondaryColor.toString(16).padStart(6, '0');
     const accent = '#' + unit.accentColor.toString(16).padStart(6, '0');
 
-    // Stem
+    // Stem rooted in earth
     ctx.strokeStyle = '#16a34a';
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 9;
     ctx.beginPath();
-    ctx.moveTo(64, 78);
-    ctx.lineTo(64, 56);
+    ctx.moveTo(64, 96);
+    ctx.lineTo(64, 58);
     ctx.stroke();
 
     ctx.lineWidth = 3.5;

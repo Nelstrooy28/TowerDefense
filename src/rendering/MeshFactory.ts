@@ -127,80 +127,120 @@ class MeshFactoryImpl {
     const isGoldenTrait = trait === 'Golden';
     const isCelestialTrait = trait === 'Celestial';
 
-    // 1. Base Pot & Visual Evolution + Mastery Skin
-    let potColor = 0xc26a3d; // terracotta
-    let potMetal = 0.05;
-    let potRough = 0.72;
-    let rimColor = 0xd97742;
+    // 1. Natural Ground Root & Turf Base + Evolution + Mastery Skins
+    let soilColor = 0x573b26; // rich garden loam
+    let rootColor = 0x6b4423; // natural gnarled bark/root
+    let rootMetal = 0.05;
+    let rootRough = 0.82;
+    let accentStoneColor = 0x4d7c0f; // mossy turf accent
 
     if (level >= 1 && level <= 2) {
-      potColor = 0x78716c; // reinforced stone
-      rimColor = 0xfbbf24; // gold trim
-      potRough = 0.52;
+      rootColor = 0x4d3319;
+      accentStoneColor = 0x64748b; // garden stones nestled in roots
+      rootRough = 0.72;
     } else if (level >= 3) {
-      potColor = 0x334155;
-      rimColor = RARITIES[rarity].colorNum;
-      potMetal = 0.35;
-      potRough = 0.38;
+      rootColor = 0x3f2e21;
+      accentStoneColor = RARITIES[rarity].colorNum;
+      rootMetal = 0.25;
+      rootRough = 0.45;
     }
 
     if (potSkin === 'striped_ceramic') {
-      potColor = 0xe2e8f0;
-      rimColor = 0x38bdf8;
+      soilColor = 0x475569;
+      rootColor = 0xe2e8f0; // white quartz root stones
+      accentStoneColor = 0x38bdf8;
     } else if (potSkin === 'mossy_stone') {
-      potColor = 0x4d7c0f;
-      rimColor = 0x84cc16;
+      soilColor = 0x365314;
+      rootColor = 0x4d7c0f;
+      accentStoneColor = 0x84cc16;
     } else if (potSkin === 'crystal') {
-      potColor = 0x67e8f9;
-      rimColor = 0xe0f2fe;
-      potMetal = 0.5;
-      potRough = 0.15;
+      soilColor = 0x164e63;
+      rootColor = 0x67e8f9;
+      accentStoneColor = 0xe0f2fe;
+      rootMetal = 0.45;
+      rootRough = 0.18;
     } else if (potSkin === 'golden' || isGoldenTrait) {
-      potColor = 0xfbbf24;
-      rimColor = 0xfef08a;
-      potMetal = 0.85;
-      potRough = 0.22;
+      soilColor = 0x78350f;
+      rootColor = 0xfbbf24;
+      accentStoneColor = 0xfef08a;
+      rootMetal = 0.85;
+      rootRough = 0.22;
     } else if (potSkin === 'galaxy') {
-      potColor = 0x3b0764;
-      rimColor = 0xc084fc;
-      potMetal = 0.6;
+      soilColor = 0x1e1b4b;
+      rootColor = 0x3b0764;
+      accentStoneColor = 0xc084fc;
+      rootMetal = 0.55;
     }
 
-    const potMat = makeMat(potColor, { metalness: potMetal, roughness: potRough });
-    const rimMat = makeMat(rimColor, {
-      metalness: level >= 2 ? 0.6 : 0.2,
-      roughness: 0.3,
-      emissive: level >= 4 ? rimColor : 0x000000,
-      emissiveIntensity: level >= 4 ? 0.9 : 0,
+    const soilMat = makeMat(soilColor, { roughness: 0.94, metalness: 0.0 });
+    const rootMat = makeMat(rootColor, { metalness: rootMetal, roughness: rootRough });
+    const stoneMat = makeMat(accentStoneColor, {
+      metalness: level >= 2 ? 0.35 : 0.1,
+      roughness: 0.42,
+      emissive: level >= 3 ? accentStoneColor : 0x000000,
+      emissiveIntensity: level >= 5 ? 1.35 : level >= 3 ? 0.85 : 0,
     });
+    if (level >= 3) emissiveParts.push(stoneMat);
 
-    const potBody = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.46, 0.34, 0.56, 12),
-      potMat
-    );
-    potBody.position.y = 0.28;
-    potBody.castShadow = true;
-    potBody.receiveShadow = true;
-    basePot.add(potBody);
+    // Organic low-profile soil & moss hillock
+    const mound = new THREE.Mesh(GEO.lowSphere, soilMat);
+    mound.scale.set(1.18, 0.28, 1.18);
+    mound.position.y = 0.06;
+    mound.receiveShadow = true;
+    mound.castShadow = true;
+    basePot.add(mound);
 
-    const potRim = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.52, 0.48, 0.14, 12),
-      rimMat
-    );
-    potRim.position.y = 0.55;
-    potRim.castShadow = true;
-    basePot.add(potRim);
+    // Radiating ground roots gripping the soil
+    const rootCount = 5 + (level >= 3 ? 1 : 0);
+    for (let i = 0; i < rootCount; i++) {
+      const a = (i / rootCount) * Math.PI * 2 + 0.2;
+      const rootTendril = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.08 + level * 0.008, 0.42 + level * 0.03, 4, 7),
+        rootMat
+      );
+      rootTendril.position.set(Math.cos(a) * 0.34, 0.09, Math.sin(a) * 0.34);
+      rootTendril.rotation.y = -a + Math.PI / 2;
+      rootTendril.rotation.x = 1.24;
+      rootTendril.castShadow = true;
+      rootTendril.receiveShadow = true;
+      basePot.add(rootTendril);
+    }
 
-    const soil = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.44, 0.44, 0.06, 10),
-      makeMat(0x451a03, { roughness: 0.95 })
-    );
-    soil.position.y = 0.58;
-    basePot.add(soil);
+    // Basal ground foliage collar
+    const basalLeaves = 4 + Math.min(4, level);
+    const groundLeafMat = makeMat(isGoldenTrait ? 0xfde047 : 0x22c55e, {
+      metalness: isGoldenTrait ? 0.75 : 0.05,
+      roughness: 0.65,
+    });
+    for (let i = 0; i < basalLeaves; i++) {
+      const a = (i / basalLeaves) * Math.PI * 2 + 0.55;
+      const gLeaf = new THREE.Mesh(GEO.sphere, groundLeafMat);
+      gLeaf.scale.set(0.38, 0.07, 0.18);
+      gLeaf.position.set(Math.cos(a) * 0.38, 0.14, Math.sin(a) * 0.38);
+      gLeaf.rotation.y = -a;
+      gLeaf.rotation.z = 0.22;
+      gLeaf.castShadow = true;
+      basePot.add(gLeaf);
+    }
 
-    // 2. Stem & Leaves (grows with level)
-    const stemHeight = 0.45 + level * 0.08;
-    stemPivot.position.set(0, 0.58, 0);
+    // Evolution stones / glowing root crystals at Lv.1+
+    if (level >= 1 || potSkin !== 'default') {
+      const stoneCount = level >= 3 ? 5 : 3;
+      for (let i = 0; i < stoneCount; i++) {
+        const a = (i / stoneCount) * Math.PI * 2 + 0.8;
+        const geom = level >= 4 || potSkin === 'crystal' ? GEO.octahedron : GEO.lowSphere;
+        const pebble = new THREE.Mesh(geom, stoneMat);
+        const s = level >= 4 ? 0.18 : 0.22;
+        pebble.scale.set(s, s * (level >= 4 ? 1.45 : 0.75), s);
+        pebble.position.set(Math.cos(a) * 0.48, 0.11, Math.sin(a) * 0.48);
+        pebble.castShadow = true;
+        basePot.add(pebble);
+      }
+    }
+
+    // 2. Stem & Leaves (grows directly out of the root collar)
+    const stemHeight = 0.54 + level * 0.08;
+    stemPivot.position.set(0, 0.14, 0);
 
     const stemMat = makeMat(isGoldenTrait ? 0xfbbf24 : 0x16a34a, {
       metalness: isGoldenTrait ? 0.8 : 0.1,
@@ -211,7 +251,7 @@ class MeshFactoryImpl {
     });
 
     const stemMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.11, 0.15, stemHeight, 8),
+      new THREE.CylinderGeometry(0.12, 0.18, stemHeight, 8),
       stemMat
     );
     stemMesh.position.y = stemHeight * 0.5;
@@ -223,7 +263,7 @@ class MeshFactoryImpl {
       const leaf = new THREE.Mesh(GEO.sphere, leafMat);
       leaf.scale.set(0.36, 0.08, 0.18);
       const ang = (i / leafCount) * Math.PI * 2 + 0.4;
-      leaf.position.set(Math.cos(ang) * 0.22, 0.16 + (i % 2) * 0.14, Math.sin(ang) * 0.22);
+      leaf.position.set(Math.cos(ang) * 0.22, 0.18 + (i % 2) * 0.14, Math.sin(ang) * 0.22);
       leaf.rotation.y = -ang;
       leaf.rotation.z = 0.35;
       leaf.castShadow = true;
@@ -231,6 +271,7 @@ class MeshFactoryImpl {
     }
 
     headTurret.position.set(0, stemHeight + 0.18, 0);
+    headTurret.userData.baseY = stemHeight + 0.18;
 
     // 3. Unit-Specific Procedural Sculpture
     const pColor = isGoldenTrait ? 0xfbbf24 : unit.primaryColor;
@@ -300,7 +341,7 @@ class MeshFactoryImpl {
 
     // 8. Level Stars Indicator (1..5 stars above head)
     const levelStars = new THREE.Group();
-    levelStars.position.set(0, stemHeight + 1.15, 0);
+    levelStars.position.set(0, stemHeight + 0.88, 0);
     for (let i = 0; i < level; i++) {
       const star = new THREE.Mesh(
         GEO.octahedron,
@@ -318,7 +359,7 @@ class MeshFactoryImpl {
 
     // 9. Stun Overlay (orbiting yellow stars when stunned by Wasp/Boss)
     const stunOverlay = new THREE.Group();
-    stunOverlay.position.set(0, stemHeight + 1.0, 0);
+    stunOverlay.position.set(0, stemHeight + 0.72, 0);
     stunOverlay.visible = false;
     const starMat = makeMat(0xfde047, { emissive: 0xfacc15, emissiveIntensity: 1.5 });
     for (let i = 0; i < 3; i++) {
@@ -687,22 +728,22 @@ class MeshFactoryImpl {
       traitVisuals.push(leaf);
     } else if (trait === 'Swift') {
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(0.62, 0.03, 6, 20),
+        new THREE.TorusGeometry(0.66, 0.03, 6, 20),
         makeMat(0x38bdf8, { emissive: 0x38bdf8, emissiveIntensity: 1.3 })
       );
       ring.rotation.x = Math.PI / 2;
-      ring.position.y = 0.2;
+      ring.position.y = 0.14;
       basePot.add(ring);
       orbiters.push(ring);
     } else if (trait === 'Thorny') {
       const thornMat = makeMat(0xf43f5e, { emissive: 0x991b1b, emissiveIntensity: 0.6 });
       for (let i = 0; i < 8; i++) {
         const thorn = new THREE.Mesh(GEO.cone, thornMat);
-        thorn.scale.set(0.08, 0.2, 0.08);
+        thorn.scale.set(0.08, 0.22, 0.08);
         const a = (i / 8) * Math.PI * 2;
-        thorn.position.set(Math.cos(a) * 0.54, 0.55, Math.sin(a) * 0.54);
-        thorn.rotation.z = -Math.cos(a) * 1.2;
-        thorn.rotation.x = Math.sin(a) * 1.2;
+        thorn.position.set(Math.cos(a) * 0.58, 0.16, Math.sin(a) * 0.58);
+        thorn.rotation.z = -Math.cos(a) * 1.1;
+        thorn.rotation.x = Math.sin(a) * 1.1;
         basePot.add(thorn);
       }
     } else if (trait === 'Sniper') {
@@ -1093,8 +1134,9 @@ class MeshFactoryImpl {
       }
     }
 
-    // Oversized Flowerpots & Decorative Flowers (open on Pollen Bloom)
-    const potDecoMat = makeMat(0xc26a3d, { roughness: 0.75 });
+    // Mossy Garden Boulders & Wildflower Clusters (open on Pollen Bloom)
+    const bushMat = makeMat(0x16a34a, { roughness: 0.85 });
+    const rockDecoMat = makeMat(0x64748b, { roughness: 0.88 });
     const flowerMat = makeMat(0xfacc15, { emissive: 0xfde047, emissiveIntensity: 0.25 });
     const decoCorners: Array<[number, number]> = [
       [-16, -16],
@@ -1103,17 +1145,21 @@ class MeshFactoryImpl {
       [16, 16],
     ];
     for (const [dx, dz] of decoCorners) {
-      const bigPot = new THREE.Group();
-      bigPot.position.set(dx, 0, dz);
-      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.7, 1.1, 10), potDecoMat);
-      pot.position.y = 0.55;
-      pot.castShadow = true;
+      const gardenCluster = new THREE.Group();
+      gardenCluster.position.set(dx, 0, dz);
+      const bush = new THREE.Mesh(GEO.lowSphere, bushMat);
+      bush.scale.set(1.8, 0.9, 1.8);
+      bush.position.y = 0.4;
+      bush.castShadow = true;
+      const boulder = new THREE.Mesh(new THREE.DodecahedronGeometry(0.65, 0), rockDecoMat);
+      boulder.position.set(0.85, 0.35, 0.45);
+      boulder.castShadow = true;
       const flower = new THREE.Mesh(GEO.sphere, flowerMat);
       flower.scale.set(0.8, 0.45, 0.8);
-      flower.position.y = 1.28;
-      bigPot.add(pot, flower);
-      group.add(bigPot);
-      wobbleProps.push(bigPot);
+      flower.position.y = 0.95;
+      gardenCluster.add(bush, boulder, flower);
+      group.add(gardenCluster);
+      wobbleProps.push(gardenCluster);
       pollenFlowers.push(flower);
     }
 
