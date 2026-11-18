@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { UNITS, getUnitById } from '../data/UnitRegistry';
 import { RARITIES } from '../data/RarityConfig';
 import { isHighRarityTrait, TRAITS, TRAIT_ORDER, type TraitId } from '../data/TraitConfig';
-import { SaveManager, type PotSkinId } from '../core/SaveManager';
+import { SaveManager, type SoilSkinId } from '../core/SaveManager';
 import { EventBus } from '../core/EventBus';
 import { MeshFactory } from '../rendering/MeshFactory';
 import { ProceduralTextures } from '../rendering/ProceduralTextures';
@@ -48,12 +48,12 @@ export class InventoryModal {
           <div id="inv-loadout-strip" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;"></div>
           <div class="inv-layout">
             <div>
-              <div style="font-size:16px;font-weight:700;margin-bottom:8px;">All Garden Units (12)</div>
+              <div style="font-size:16px;font-weight:700;margin-bottom:8px;">All Garden Units (${UNITS.length})</div>
               <div class="unit-grid" id="inv-grid"></div>
             </div>
             <div class="gloss-panel" style="padding:12px;display:flex;flex-direction:column;gap:10px;">
               <div style="display:flex;gap:8px;">
-                <button class="btn btn-sm" id="tab-unit-btn" style="flex:1;">Unit & Skins</button>
+                <button class="btn btn-sm" id="tab-unit-btn" style="flex:1;">Unit & Soil Skins</button>
                 <button class="btn btn-purple btn-sm" id="tab-reroll-btn" style="flex:1;">Trait Reroll Wheel</button>
               </div>
               <div class="showcase-stage" id="inv-stage" style="height:210px;"></div>
@@ -96,7 +96,8 @@ export class InventoryModal {
     this.scene.add(hemi, dir, this.previewGroup);
   }
 
-  public open(): void {
+  public open(focusUnitId?: string): void {
+    if (focusUnitId) this.selectedUnitId = focusUnitId;
     this.isOpen = true;
     this.root.classList.remove('hidden');
     if (!this.renderer) {
@@ -127,19 +128,19 @@ export class InventoryModal {
     this.root.querySelector('#inv-seeds')!.textContent = `🌱 ${d.seeds}`;
     this.root.querySelector('#inv-dews')!.textContent = `💧 ${d.dewdrops}`;
 
-    // 6-slot loadout strip
     const strip = this.root.querySelector('#inv-loadout-strip')!;
-    strip.innerHTML = `<span style="font-weight:800;">Loadout (6):</span>` + d.loadout
-      .map((uId, idx) => {
-        if (!uId) {
-          return `<div class="stat-pill" style="opacity:0.5;">Slot ${idx + 1}: Empty</div>`;
-        }
-        const u = getUnitById(uId);
-        return `<div class="stat-pill" style="border-color:${RARITIES[u.rarity].hex};">${idx + 1}. ${u.name}</div>`;
-      })
-      .join('');
+    strip.innerHTML =
+      `<span style="font-weight:800;">Loadout (6):</span>` +
+      d.loadout
+        .map((uId, idx) => {
+          if (!uId) {
+            return `<div class="stat-pill" style="opacity:0.5;">Slot ${idx + 1}: Empty</div>`;
+          }
+          const u = getUnitById(uId);
+          return `<div class="stat-pill" style="border-color:${RARITIES[u.rarity].hex};">${idx + 1}. ${u.name}</div>`;
+        })
+        .join('');
 
-    // 12-unit Rarity Grid
     const grid = this.root.querySelector('#inv-grid')!;
     grid.innerHTML = UNITS.map((u) => {
       const owned = d.owned[u.id];
@@ -150,7 +151,7 @@ export class InventoryModal {
       return `
         <button class="unit-tile ${owned ? '' : 'locked'} ${isSel ? 'selected' : ''}" data-uid="${u.id}" style="border-color:${hex};">
           <img class="unit-portrait" src="${portrait}" alt="${u.name}" />
-          <div style="font-weight:700;font-size:14px;">${u.name}</div>
+          <div style="font-weight:700;font-size:14px;">${u.name}${owned?.isPrime ? ' ★' : ''}</div>
           <div style="font-size:14px;color:${hex};">${u.rarity}</div>
           <div style="font-size:14px;color:${equipped ? '#4ade80' : '#94a3b8'};">
             ${owned ? (equipped ? '✓ Equipped' : `Copies: ${owned.copies}`) : 'Locked'}
@@ -186,7 +187,8 @@ export class InventoryModal {
       5,
       unit.rarity,
       owned?.trait ?? 'Sprouting',
-      owned?.potSkin ?? 'default'
+      owned?.soilSkin ?? 'garden_loam',
+      Boolean(owned?.isPrime)
     );
     this.previewGroup.add(rig.root);
   }
@@ -208,18 +210,24 @@ export class InventoryModal {
     }
 
     if (this.activeTab === 'unit') {
-      const unlockedSkins = SaveManager.getUnlockedPotSkins(unit.id);
-      const skinLabels: Record<PotSkinId, string> = {
-        default: 'Natural Roots',
-        striped_ceramic: 'Quartz Stones (M5)',
-        mossy_stone: 'Mossy Bark (M5)',
-        crystal: 'Crystal Geode (M10)',
-        golden: 'Golden Roots (M10)',
-        galaxy: 'Galaxy Roots (M10)',
+      const unlockedSkins = SaveManager.getUnlockedSoilSkins(unit.id);
+      const skinLabels: Record<SoilSkinId, string> = {
+        garden_loam: 'Garden Loam',
+        mossy_stone: 'Mossy Stone (M5)',
+        crystal_bed: 'Crystal Bed (M10)',
+        golden_sand: 'Golden Sand (M10)',
+        galaxy_soil: 'Galaxy Soil (M10)',
+        lava_rock: 'Lava Rock (Volcano)',
       };
+      const canPrime =
+        !owned.isPrime &&
+        (unit.rarity === 'Godly' || unit.rarity === 'Exclusive') &&
+        owned.masteryLevel >= 10 &&
+        SaveManager.data.dewdrops >= 3;
+
       pane.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;">
-          <strong style="font-size:18px;">${unit.name}</strong>
+          <strong style="font-size:18px;">${unit.name} ${owned.isPrime ? '<span style="color:#fde047;">[PRIME]</span>' : ''}</strong>
           <span style="font-size:14px;color:${TRAITS[owned.trait].color};">${owned.trait}</span>
         </div>
         <div style="font-size:14px;color:#cbd5e1;">${unit.roleSummary}</div>
@@ -231,13 +239,20 @@ export class InventoryModal {
           <button class="btn btn-gold btn-sm" id="btn-fuse" ${owned.copies < 4 ? 'disabled' : ''}>
             Fuse 3 Copies (${owned.copies - 1} spare)
           </button>
+          ${
+            unit.rarity === 'Godly' || unit.rarity === 'Exclusive'
+              ? `<button class="btn btn-purple btn-sm" id="btn-prime" ${canPrime ? '' : 'disabled'}>
+                  ${owned.isPrime ? '★ Prime Evolved' : 'Evolve Prime (M10 + 3 💧)'}
+                 </button>`
+              : ''
+          }
         </div>
-        <div style="font-size:14px;font-weight:700;">Root Base Skins:</div>
+        <div style="font-size:14px;font-weight:700;">Soil Skins:</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
-          ${(['default', 'striped_ceramic', 'mossy_stone', 'crystal', 'golden', 'galaxy'] as PotSkinId[])
+          ${(['garden_loam', 'mossy_stone', 'crystal_bed', 'golden_sand', 'galaxy_soil', 'lava_rock'] as SoilSkinId[])
             .map((skin) => {
               const unlocked = unlockedSkins.includes(skin);
-              const active = owned.potSkin === skin;
+              const active = owned.soilSkin === skin;
               return `<button class="btn btn-sm ${active ? 'btn-green' : 'btn-slate'}" data-skin="${skin}" ${unlocked ? '' : 'disabled'}>${skinLabels[skin]}</button>`;
             })
             .join('')}
@@ -250,10 +265,21 @@ export class InventoryModal {
       pane.querySelector('#btn-fuse')!.addEventListener('click', () => {
         if (SaveManager.fuseUnitCopies(unit.id)) SynthAudio.play('upgrade');
       });
+      pane.querySelector('#btn-prime')?.addEventListener('click', () => {
+        if (SaveManager.evolveUnitToPrime(unit.id)) {
+          SynthAudio.play('upgrade_max');
+          this.syncStageModel();
+          EventBus.emit('toast:show', {
+            title: `★ ${unit.name} Evolved to PRIME!`,
+            subtitle: '+12% all stats + Golden Roots',
+            color: '#fde047',
+          });
+        }
+      });
       pane.querySelectorAll('[data-skin]').forEach((btn) => {
         btn.addEventListener('click', () => {
-          const skin = (btn as HTMLElement).dataset.skin as PotSkinId;
-          SaveManager.setPotSkin(unit.id, skin);
+          const skin = (btn as HTMLElement).dataset.skin as SoilSkinId;
+          SaveManager.setSoilSkin(unit.id, skin);
           this.syncStageModel();
           SynthAudio.play('click');
         });
@@ -323,7 +349,7 @@ export class InventoryModal {
         this.previewGroup.rotation.y += dt * 0.75;
       } else if (this.wheelSpinning) {
         this.wheelTime += dt;
-        const dur = 1.4; // §4.2.1 1.4 s with easeOutBack
+        const dur = 1.4;
         const t = Math.min(1, this.wheelTime / dur);
         const eased = easeOutBack(t, 1.35);
         this.wheelMesh.rotation.z = THREE.MathUtils.lerp(this.wheelStartAngle, this.wheelTargetAngle, eased);

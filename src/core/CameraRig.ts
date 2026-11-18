@@ -23,6 +23,14 @@ export class CameraRig {
   private lastPointerY = 0;
   private idleTimer = 0;
   public isLobbyMode = true;
+  public photoMode = false;
+
+  // Touch multi-finger tracking (F3 / §15)
+  private activeTouches = new Map<number, { x: number; y: number }>();
+  private lastPinchDist = 0;
+  private lastPinchAngle = 0;
+  private lastTouchMidX = 0;
+  private lastTouchMidY = 0;
 
   // Feel layers
   private trauma = 0;
@@ -38,7 +46,7 @@ export class CameraRig {
   private nudgeRemaining = 0;
   private nudgeDuration = 0.35;
 
-  // Cinematic Boss Pan
+  // Cinematic Boss Pan / MVP Pan
   private cinematicActive = false;
   private cinematicTimer = 0;
   private cinematicDuration = 3.0;
@@ -69,6 +77,11 @@ export class CameraRig {
     this.distance = 25;
     this.trauma = 0;
     this.cinematicActive = false;
+  }
+
+  public focusPoint(wx: number, wz: number, zoomDist = 14): void {
+    this.desiredTarget.set(wx, 0, wz);
+    this.desiredDistance = THREE.MathUtils.clamp(zoomDist, 8, 38);
   }
 
   public addTrauma(amount: number): void {
@@ -112,6 +125,24 @@ export class CameraRig {
     this.cinematicActive = false;
   }
 
+  private panByScreenDelta(dx: number, dy: number): void {
+    const scale = this.distance * 0.0018;
+    const sinY = Math.sin(this.yaw);
+    const cosY = Math.cos(this.yaw);
+    this.desiredTarget.x -= (dx * cosY + dy * sinY) * scale;
+    this.desiredTarget.z -= (-dx * sinY + dy * cosY) * scale;
+    this.desiredTarget.x = THREE.MathUtils.clamp(
+      this.desiredTarget.x,
+      -this.boundsHalfSize,
+      this.boundsHalfSize
+    );
+    this.desiredTarget.z = THREE.MathUtils.clamp(
+      this.desiredTarget.z,
+      -this.boundsHalfSize,
+      this.boundsHalfSize
+    );
+  }
+
   private bindInputs(dom: HTMLElement): void {
     window.addEventListener('keydown', (e) => {
       this.keysDown.add(e.code);
@@ -147,6 +178,7 @@ export class CameraRig {
     window.addEventListener('pointerup', (e) => {
       if (e.button === 2) this.isOrbitDragging = false;
     });
+
     dom.addEventListener(
       'wheel',
       (e) => {
@@ -159,6 +191,96 @@ export class CameraRig {
       },
       { passive: true }
     );
+
+    // Multi-touch controls (§15): 1-finger drag pan, 2-finger pinch zoom & twist rotate
+    dom.addEventListener(
+      'touchstart',
+      (e) => {
+        this.idleTimer = 0;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const t = e.changedTouches[i];
+          this.activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+        }
+        this.resetTouchBaseline();
+      },
+      { passive: true }
+    );
+
+    dom.addEventListener(
+      'touchmove',
+      (e) => {
+        this.idleTimer = 0;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+          const t = e.changedTouches[i];
+          this.activeTouches.set(t.identifier, { x: t.clientX, y: t.clientY });
+        }
+
+        const pts = Array.from(this.activeTouches.values());
+        if (pts.length === 1 && !this.isLobbyMode) {
+          const dx = pts[0].x - this.lastTouchMidX;
+          const dy = pts[0].y - this.lastTouchMidY;
+          this.lastTouchMidX = pts[0].x;
+          this.lastTouchMidY = pts[0].y;
+          this.panByScreenDelta(dx, dy);
+        } else if (pts.length >= 2) {
+          const dx = pts[1].x - pts[0].x;
+          const dy = pts[1].y - pts[0].y;
+          const dist = Math.hypot(dx, dy);
+          const angle = Math.atan2(dy, dx);
+          const midY = (pts[0].y + pts[1].y) * 0.5;
+
+          if (this.lastPinchDist > 0) {
+            const dDist = dist - this.lastPinchDist;
+            this.desiredDistance = THREE.MathUtils.clamp(this.desiredDistance - dDist * 0.06, 8, 38);
+
+            let dAngle = angle - this.lastPinchAngle;
+            if (dAngle > Math.PI) dAngle -= Math.PI * 2;
+            if (dAngle < -Math.PI) dAngle += Math.PI * 2;
+            this.desiredYaw -= dAngle * 1.1;
+
+            const dMidY = midY - this.lastTouchMidY;
+            this.desiredPitch = THREE.MathUtils.clamp(
+              this.desiredPitch + dMidY * 0.003,
+              THREE.MathUtils.degToRad(25),
+              THREE.MathUtils.degToRad(80)
+            );
+          }
+
+          this.lastPinchDist = dist;
+          this.lastPinchAngle = angle;
+          this.lastTouchMidX = (pts[0].x + pts[1].x) * 0.5;
+          this.lastTouchMidY = midY;
+        }
+      },
+      { passive: true }
+    );
+
+    const endTouch = (e: TouchEvent) => {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        this.activeTouches.delete(e.changedTouches[i].identifier);
+      }
+      this.resetTouchBaseline();
+    };
+    dom.addEventListener('touchend', endTouch, { passive: true });
+    dom.addEventListener('touchcancel', endTouch, { passive: true });
+  }
+
+  private resetTouchBaseline(): void {
+    const pts = Array.from(this.activeTouches.values());
+    if (pts.length === 1) {
+      this.lastTouchMidX = pts[0].x;
+      this.lastTouchMidY = pts[0].y;
+      this.lastPinchDist = 0;
+    } else if (pts.length >= 2) {
+      const dx = pts[1].x - pts[0].x;
+      const dy = pts[1].y - pts[0].y;
+      this.lastPinchDist = Math.hypot(dx, dy);
+      this.lastPinchAngle = Math.atan2(dy, dx);
+      this.lastTouchMidX = (pts[0].x + pts[1].x) * 0.5;
+      this.lastTouchMidY = (pts[0].y + pts[1].y) * 0.5;
+    } else {
+      this.lastPinchDist = 0;
+    }
   }
 
   public update(dt: number): void {
@@ -166,7 +288,7 @@ export class CameraRig {
     this.shakeTime += dt * 28;
 
     // WASD / Arrow Keys XZ pan along camera yaw
-    if (!this.isLobbyMode && !this.cinematicActive) {
+    if ((!this.isLobbyMode || this.photoMode) && !this.cinematicActive) {
       let forward = 0;
       let right = 0;
       if (this.keysDown.has('KeyW') || this.keysDown.has('ArrowUp')) forward += 1;
@@ -194,7 +316,7 @@ export class CameraRig {
     }
 
     // Lobby Idle Drift (§3.2): 8 s no input in lobby -> slow orbit 4°/s
-    if (this.isLobbyMode && this.idleTimer >= 8 && !QualityManager.settings.reducedMotion) {
+    if (this.isLobbyMode && !this.photoMode && this.idleTimer >= 8 && !QualityManager.settings.reducedMotion) {
       this.desiredYaw += THREE.MathUtils.degToRad(4) * dt;
     }
 

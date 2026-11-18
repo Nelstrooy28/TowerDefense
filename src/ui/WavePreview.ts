@@ -5,13 +5,22 @@ import type { EnemyTypeId } from '../data/EnemyRegistry';
 
 const ENEMY_ICONS: Record<EnemyTypeId, string> = {
   garden_ant: '🐜',
+  aphid_cluster: '🟢',
+  aphid_mini: '◦',
   sprinter_mantis: '🦗',
   iron_beetle: '🪲',
+  caterpillar_cocoon: '🐛',
+  moth_flyer: '🦋',
   burrowing_mole: '🦡',
+  termite_gnawer: '🪵',
   spore_wasp: '🐝',
+  locust_swarm: '🦗',
   gargantuan_snail: '🐌',
   speedy_slug: '🐛',
   treant_overlord: '🌳',
+  vinewyrm_hydra: '🐍',
+  magma_beetle_queen: '🌋',
+  frost_moth_empress: '❄️',
 };
 
 const THREAT_COLORS: Record<string, string> = {

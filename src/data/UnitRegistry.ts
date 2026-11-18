@@ -1,8 +1,27 @@
 import type { RarityId } from './RarityConfig';
 
 export type TerrainTag = 'GROUND' | 'CLIFF' | 'HYBRID';
-export type ElementTag = 'physical' | 'burn' | 'chill' | 'freeze' | 'bleed' | 'arcane' | 'wet' | 'knockback' | 'heavy' | 'farm' | 'support';
-export type AbilityId = 'bass_drop' | 'overdrive_mist' | 'tectonic_slam' | 'chrono_tsunami';
+export type ElementTag =
+  | 'physical'
+  | 'burn'
+  | 'chill'
+  | 'freeze'
+  | 'bleed'
+  | 'arcane'
+  | 'wet'
+  | 'knockback'
+  | 'heavy'
+  | 'poison'
+  | 'crit_aura'
+  | 'farm'
+  | 'support';
+
+export type AbilityId =
+  | 'bass_drop'
+  | 'overdrive_mist'
+  | 'tectonic_slam'
+  | 'chrono_tsunami'
+  | 'solar_flare';
 
 export interface ActiveAbilityDef {
   id: AbilityId;
@@ -22,6 +41,7 @@ export interface UnitLevelStats {
   farmPayout: number;
   buffCd: number;
   buffRange: number;
+  buffCrit: number;
   upgradeCost: number;
 }
 
@@ -52,6 +72,8 @@ export interface UnitDef {
   isBeam?: boolean;
   isExplosive?: boolean;
   isMelee?: boolean;
+  isPiercing?: boolean;
+  isPoisonCloud?: boolean;
   ability?: ActiveAbilityDef;
   primaryColor: number;
   secondaryColor: number;
@@ -65,11 +87,11 @@ export interface UnitDef {
   levels: UnitLevelStats[];
 }
 
-function roundTo25(val: number): number {
+export function roundTo25(val: number): number {
   return Math.max(25, Math.round(val / 25) * 25);
 }
 
-const UPGRADE_MULTS = [0, 0.85, 1.65, 3.2, 6.5, 13.5];
+export const UPGRADE_MULTS = [0, 0.85, 1.65, 3.2, 6.5, 13.5];
 
 function buildLevels(
   cost: number,
@@ -83,7 +105,9 @@ function buildLevels(
   projMax: number,
   splashRadius: number,
   isFarm = false,
-  isSupport = false
+  isSupport = false,
+  critMin = 0,
+  critMax = 0
 ): UnitLevelStats[] {
   const t = [0, 0.16, 0.34, 0.56, 0.78, 1.0];
   const levels: UnitLevelStats[] = [];
@@ -94,8 +118,9 @@ function buildLevels(
     const range = rangeBase === 0 ? 0 : Number((rangeBase + (rangeMax - rangeBase) * f).toFixed(1));
     const projectiles = i >= 4 ? projMax : projBase;
     const farmPayout = isFarm ? Math.round(80 + (1150 - 80) * Math.pow(f, 1.3)) : 0;
-    const buffCd = isSupport ? Number((0.1 + 0.15 * f).toFixed(2)) : 0;
-    const buffRange = isSupport ? 0.15 : 0;
+    const buffCd = isSupport && critMax === 0 ? Number((0.1 + 0.15 * f).toFixed(2)) : 0;
+    const buffRange = isSupport && critMax === 0 ? 0.15 : 0;
+    const buffCrit = critMax > 0 ? Number((critMin + (critMax - critMin) * f).toFixed(3)) : 0;
     const upgradeCost = i === 0 ? cost : roundTo25(cost * UPGRADE_MULTS[i]);
     levels.push({
       level: i,
@@ -107,6 +132,7 @@ function buildLevels(
       farmPayout,
       buffCd,
       buffRange,
+      buffCrit,
       upgradeCost,
     });
   }
@@ -545,10 +571,129 @@ export const UNITS: UnitDef[] = [
     },
     levels: buildLevels(4200, 480, 5800, 1.2, 0.55, 16, 28, 1, 1, 3.0),
   },
+  // Spec v3 §7 New Units (13-15)
+  {
+    id: 'bamboo_archer',
+    index: 13,
+    name: 'Bamboo Archer',
+    rarity: 'Uncommon',
+    cost: 375,
+    cap: 6,
+    footprintRadius: 0.72,
+    terrain: 'CLIFF',
+    dmgBase: 30,
+    dmgMax: 290,
+    cdBase: 1.6,
+    cdMax: 0.95,
+    rangeBase: 15,
+    rangeMax: 24,
+    projectilesBase: 1,
+    projectilesMax: 3,
+    splashRadius: 0,
+    roleSummary: 'CLIFF only. Long-range piercing arrow (hits up to 3 enemies in a line). Hits flying.',
+    elements: ['physical'],
+    canHitFlying: true,
+    canHitBurrowed: false,
+    isPiercing: true,
+    primaryColor: 0x84cc16,
+    secondaryColor: 0x3f6212,
+    accentColor: 0xbef264,
+    signatureAnim: {
+      idle: 'Stalks sway; leaves flick like ears',
+      attack: 'Top stalk bends back like a bow (0.25 s), snaps forward',
+      impact: 'Bamboo arrow with green ribbon trail; pierce sparks per enemy',
+      lv5Extra: 'Arrows split into 3 at the end of range',
+    },
+    levels: buildLevels(375, 30, 290, 1.6, 0.95, 15, 24, 1, 3, 0),
+  },
+  {
+    id: 'puffball_mushroom',
+    index: 14,
+    name: 'Puffball Spore Mushroom',
+    rarity: 'Rare',
+    cost: 600,
+    cap: 5,
+    footprintRadius: 0.82,
+    terrain: 'GROUND',
+    dmgBase: 12,
+    dmgMax: 120,
+    cdBase: 3.0,
+    cdMax: 2.4,
+    rangeBase: 8,
+    rangeMax: 12,
+    projectilesBase: 1,
+    projectilesMax: 1,
+    splashRadius: 2.5,
+    roleSummary: 'Drops a poison cloud (radius 2.5, 4 s) on track. Poison stacks 3×. Hits burrowed moles.',
+    elements: ['poison'],
+    canHitFlying: false,
+    canHitBurrowed: true,
+    isPoisonCloud: true,
+    primaryColor: 0xa855f7,
+    secondaryColor: 0x84cc16,
+    accentColor: 0xd8b4fe,
+    signatureAnim: {
+      idle: 'Cap breathes slowly, small spores drift',
+      attack: 'Cap squashes down hard (0.12 s), puff',
+      impact: 'Green-purple cloud, soft swirling particles, poison decal',
+      lv5Extra: 'Cloud gets glowing eyes and follows enemies slowly',
+    },
+    levels: buildLevels(600, 12, 120, 3.0, 2.4, 8, 12, 1, 1, 2.5),
+  },
+  {
+    id: 'sunflower_beacon',
+    index: 15,
+    name: 'Sunflower Solar Beacon',
+    rarity: 'Legendary',
+    cost: 1000,
+    cap: 3,
+    footprintRadius: 0.9,
+    terrain: 'GROUND',
+    dmgBase: 0,
+    dmgMax: 0,
+    cdBase: 2.0,
+    cdMax: 2.0,
+    rangeBase: 8,
+    rangeMax: 13,
+    projectilesBase: 0,
+    projectilesMax: 0,
+    splashRadius: 0,
+    roleSummary: 'Aura: +6% → +15% crit chance to nearby towers. Solar Flare (Lv.4): guaranteed crits 4 s, 35 s CD.',
+    elements: ['support', 'crit_aura'],
+    canHitFlying: false,
+    canHitBurrowed: false,
+    isSupport: true,
+    ability: {
+      id: 'solar_flare',
+      name: 'Solar Flare',
+      cooldown: 35,
+      description: 'All towers in range guaranteed crit for 4 s + Overcharge Laser ramp 2×',
+      hotkeyHint: 'Q/E/R',
+    },
+    primaryColor: 0xfacc15,
+    secondaryColor: 0x78350f,
+    accentColor: 0xfef08a,
+    signatureAnim: {
+      idle: 'Face turns to follow the sun angle',
+      attack: 'Petals flare open on each aura pulse',
+      impact: 'Warm light rays to buffed towers, lens flare',
+      lv5Extra: 'Face becomes a tiny sun; heat shimmer ring',
+    },
+    levels: buildLevels(1000, 0, 0, 2.0, 2.0, 8, 13, 0, 0, 0, false, true, 0.06, 0.15),
+  },
 ];
 
 export const UNIT_MAP: Record<string, UnitDef> = Object.fromEntries(UNITS.map((u) => [u.id, u]));
 
 export function getUnitById(id: string): UnitDef {
   return UNIT_MAP[id] ?? UNITS[0];
+}
+
+export function getUpgradePreviewLabel(unit: UnitDef, nextLevel: number): string {
+  if (nextLevel === 1) return '+Stone Ring';
+  if (nextLevel === 2) return '+Mossy Roots';
+  if (nextLevel === 3) return '+Runic Veins';
+  if (nextLevel === 4) return unit.ability ? `+${unit.ability.name}` : '+Bloom Flowers';
+  if (nextLevel === 5) return '+Awakened Crown';
+  return '';
 }

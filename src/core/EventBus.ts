@@ -3,10 +3,11 @@ import type { MapId, DifficultyId } from '../data/MapRegistry';
 import type { WeatherId } from '../data/WeatherConfig';
 import type { RarityId } from '../data/RarityConfig';
 import type { TraitId } from '../data/TraitConfig';
+import type { GameModeId } from '../data/GameModesConfig';
 
 export interface GameEvents {
   'music:beat': { beatIndex: number; threat: number };
-  'audio:sfx': { id: string; intensity?: number };
+  'audio:sfx': { id: string; intensity?: number; screenX?: number; distance?: number };
   'audio:duck': { duration: number };
 
   'camera:trauma': { amount: number };
@@ -29,10 +30,13 @@ export interface GameEvents {
   'match:wave_cleared': { wave: number; bonus: number };
   'match:boss_spawned': { name: string; maxHp: number; maxShield: number };
   'match:boss_phase': { phase: number };
+  'match:boss_staggered': void;
   'match:boss_defeated': void;
   'match:victory': { mapId: MapId; difficulty: DifficultyId; seedsEarned: number; wavesCleared: number };
   'match:defeat': { wavesCleared: number };
   'match:bloom_chest': { seeds: number; dewdrops: number; wave: number };
+  'match:killfeed': { text: string; color?: string };
+  'match:paused_changed': { paused: boolean };
 
   'tower:selected': { towerId: string | null };
   'tower:placed': { unitId: string; x: number; z: number };
@@ -51,7 +55,8 @@ export interface GameEvents {
   'toast:show': { title: string; subtitle?: string; color?: string };
   'crate:pulled': { unitId: string; rarity: RarityId; trait: TraitId; isNew: boolean };
   'ui:open_lobby': void;
-  'ui:start_match': { mapId: MapId; difficulty: DifficultyId };
+  'ui:open_unit_inventory': { unitId: string };
+  'ui:start_match': { mapId: MapId; difficulty: DifficultyId; mode?: GameModeId; puzzleId?: number };
 }
 
 type Listener<T> = (payload: T) => void;

@@ -1,6 +1,14 @@
 import type { ElementTag } from './UnitRegistry';
 
-export type SynergyId = 'steam_burst' | 'cauterize' | 'ice_skate' | 'shatter' | 'conduct' | 'fizzle';
+export type SynergyId =
+  | 'steam_burst'
+  | 'cauterize'
+  | 'ice_skate'
+  | 'shatter'
+  | 'conduct'
+  | 'fizzle'
+  | 'toxic_blaze'
+  | 'poison_spread';
 
 export interface SynergyDef {
   id: SynergyId;
@@ -81,6 +89,29 @@ export const SYNERGIES: SynergyDef[] = [
     vfxDesc: 'Grey smoke puff',
     partnerUnitNames: ['Ghost Pepper', 'Speed Sprinkler'],
   },
+  // v3 §7.2 New Synergies
+  {
+    id: 'toxic_blaze',
+    name: 'Toxic Blaze',
+    popupText: 'TOXIC BLAZE!',
+    color: '#a3e635',
+    colorNum: 0xa3e635,
+    requires: ['poison', 'burn'],
+    effectDesc: 'Poison cloud ignites: 1-time 200% burst, poison clears',
+    vfxDesc: 'Green-orange toxic fireball',
+    partnerUnitNames: ['Puffball Spore Mushroom', 'Ghost Pepper', 'Elemental Chrono-Bloom'],
+  },
+  {
+    id: 'poison_spread',
+    name: 'Spread',
+    popupText: 'SPREAD!',
+    color: '#4ade80',
+    colorNum: 0x4ade80,
+    requires: ['poison', 'wet'],
+    effectDesc: 'Poison spreads to 2 nearby enemies',
+    vfxDesc: 'Glowing spore splash',
+    partnerUnitNames: ['Puffball Spore Mushroom', 'Speed Sprinkler'],
+  },
 ];
 
 export function getUnitSynergyPartners(unitName: string, unitElements: ElementTag[]): string[] {
@@ -94,6 +125,12 @@ export function getUnitSynergyPartners(unitName: string, unitElements: ElementTa
         if (name !== unitName) partners.add(name);
       }
     }
+  }
+  if (unitElements.includes('crit_aura')) {
+    partners.add('Laser Plant');
+  }
+  if (unitElements.includes('arcane')) {
+    partners.add('Sunflower Solar Beacon');
   }
   return Array.from(partners);
 }

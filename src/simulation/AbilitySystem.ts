@@ -46,6 +46,7 @@ export class AbilitySystem {
       EventBus.emit('audio:duck', { duration: 0.3 });
       SynthAudio.play('sonic');
 
+      let hitCount = 0;
       for (const e of enemies) {
         if (e.isDead || e.reachedGoal) continue;
         if (Math.hypot(e.position.x - tx, e.position.z - tz) <= rng) {
@@ -53,9 +54,11 @@ export class AbilitySystem {
           e.applyKnockback(1.6, 1);
           const res = e.applyDamage(tower.getEffectiveDamage() * 2, { sourceTowerId: tower.id });
           this.onDamageCredit?.(tower, res.hpDamage, e);
+          hitCount++;
         }
       }
       this.popups.spawnDamage(tx, tower.position.y + 1.4, tz, 0, 'synergy', '', 'BASS DROP!');
+      EventBus.emit('match:killfeed', { text: `Sonic Bloom Bass Dropped ${hitCount} pests`, color: '#e879f9' });
       return true;
     }
 
@@ -92,6 +95,7 @@ export class AbilitySystem {
       SynthAudio.play('golem');
 
       const slamDmg = tower.getEffectiveDamage() * 5;
+      let hitCount = 0;
       for (const e of enemies) {
         if (e.isDead || e.reachedGoal) continue;
         if (Math.hypot(e.position.x - tx, e.position.z - tz) <= rng) {
@@ -99,9 +103,11 @@ export class AbilitySystem {
           const res = e.applyDamage(slamDmg, { isExplosive: true, sourceTowerId: tower.id });
           this.onDamageCredit?.(tower, res.hpDamage, e);
           this.popups.spawnDamage(e.position.x, e.position.y, e.position.z, res.hpDamage, 'crit', e.id);
+          hitCount++;
         }
       }
       this.popups.spawnDamage(tx, tower.position.y + 1.5, tz, 0, 'crit', '', 'TECTONIC SLAM!');
+      EventBus.emit('match:killfeed', { text: `Golem slammed ${hitCount} pests`, color: '#fb923c' });
       return true;
     }
 
@@ -122,6 +128,24 @@ export class AbilitySystem {
         e.applyKnockback(3.2, 1);
       }
       this.popups.spawnDamage(tx, tower.position.y + 1.6, tz, 0, 'freeze', '', 'CHRONO TSUNAMI!');
+      return true;
+    }
+
+    if (abilityId === 'solar_flare') {
+      this.vfx.spawnRecipe('solar_flare', tx, 1.2, tz);
+      this.vfx.spawnShockwave(tx, 0.08, tz, rng, 0xfde047, 0.65);
+      SynthAudio.play('upgrade_max');
+      for (const ally of towers) {
+        if (Math.hypot(ally.position.x - tx, ally.position.z - tz) <= rng) {
+          ally.solarFlareTimer = Math.max(ally.solarFlareTimer, 4.0);
+          // §7.2 Overcharge: Laser Plant ramp builds 2x faster!
+          if (ally.def.id === 'laser_plant') {
+            ally.laserRampStacks = Math.min(1.5, ally.laserRampStacks + 0.5);
+          }
+        }
+      }
+      this.popups.spawnDamage(tx, tower.position.y + 1.5, tz, 0, 'crit', '', 'SOLAR FLARE!');
+      EventBus.emit('match:killfeed', { text: 'Solar Flare: All nearby towers 100% Crit!', color: '#fde047' });
       return true;
     }
 

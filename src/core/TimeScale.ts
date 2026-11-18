@@ -1,7 +1,9 @@
 import { QualityManager } from './QualityManager';
+import { EventBus } from './EventBus';
 
 export type HitStopKind =
   | 'crit'
+  | 'overkill'
   | 'flytrap_devour'
   | 'golem_smash'
   | 'shield_shatter'
@@ -10,6 +12,7 @@ export type HitStopKind =
 
 const HIT_STOP_DURATION: Record<HitStopKind, number> = {
   crit: 0.04,
+  overkill: 0.03,
   flytrap_devour: 0.07,
   golem_smash: 0.09,
   shield_shatter: 0.06,
@@ -44,6 +47,12 @@ class TimeScaleController {
 
   public setSpeed(speed: GameSpeed): void {
     this.speed = speed;
+  }
+
+  public togglePause(): boolean {
+    this.paused = !this.paused;
+    EventBus.emit('match:paused_changed', { paused: this.paused });
+    return this.paused;
   }
 
   public triggerHitStop(kind: HitStopKind): void {
@@ -82,7 +91,7 @@ class TimeScaleController {
     this.elapsedReal += clampedDt;
 
     if (this.paused) {
-      return { uiDt: clampedDt, simDt: 0, enemyDt: 0, shaderDt: clampedDt * 0.25 };
+      return { uiDt: clampedDt, simDt: 0, enemyDt: 0, shaderDt: clampedDt * 0.15 };
     }
 
     if (this.hitStopRemaining > 0) {

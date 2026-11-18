@@ -2,29 +2,46 @@ import { SynthAudio } from './SynthAudio';
 import { EventBus } from '../core/EventBus';
 import { QualityManager } from '../core/QualityManager';
 import { GlobalShaderUniforms } from '../rendering/ShaderLib';
+import type { MapId } from '../data/MapRegistry';
 
-/**
- * 100 BPM 4-Layer Adaptive Procedural Music (§10.1)
- * Layer 1: Garden pad (Always)
- * Layer 2: Plucks (Wave active)
- * Layer 3: Drums (Threat > 40%)
- * Layer 4: Danger (Boss or Base HP < 25%)
- */
+const MAP_CHORDS: Record<MapId, number[][]> = {
+  // C major: I - V - vi - IV
+  sunny_backyard: [
+    [261.63, 329.63, 392.0],
+    [196.0, 246.94, 293.66],
+    [220.0, 261.63, 329.63],
+    [174.61, 220.0, 261.63],
+  ],
+  // D Dorian
+  enchanted_jungle: [
+    [293.66, 349.23, 440.0],
+    [329.63, 392.0, 493.88],
+    [261.63, 329.63, 392.0],
+    [293.66, 392.0, 440.0],
+  ],
+  // E Phrygian
+  volcano_greenhouse: [
+    [329.63, 392.0, 493.88],
+    [349.23, 440.0, 523.25],
+    [293.66, 349.23, 440.0],
+    [329.63, 349.23, 493.88],
+  ],
+  // A minor (Frosty bell layer)
+  frosty_allotment: [
+    [220.0, 261.63, 329.63],
+    [174.61, 220.0, 261.63],
+    [261.63, 329.63, 392.0],
+    [196.0, 246.94, 293.66],
+  ],
+};
+
 class AdaptiveMusicImpl {
-  private readonly bpm = 100;
-  private readonly stepDuration = 60 / this.bpm / 2; // eighth note = 0.3 s
   private stepAccum = 0;
   private stepIndex = 0;
   private threatSmoothed = 0;
   public currentBeatPulse = 0;
-
-  // I - V - vi - IV in C major (MIDI-ish Hz)
-  private readonly chords = [
-    [261.63, 329.63, 392.0], // C
-    [196.0, 246.94, 293.66], // G
-    [220.0, 261.63, 329.63], // Am
-    [174.61, 220.0, 261.63], // F
-  ];
+  public mapId: MapId = 'sunny_backyard';
+  public bossPhase3 = false;
 
   public update(
     dt: number,
@@ -32,14 +49,16 @@ class AdaptiveMusicImpl {
     rawThreat: number,
     isBossOrLowHp: boolean
   ): void {
-    // Smooth threat over 2 s (§10.1)
+    const bpm = this.bossPhase3 ? 112 : 100; // §17 Phase 3 raises tempo 100 -> 112 BPM
+    const stepDuration = 60 / bpm / 2;
+
     this.threatSmoothed += (rawThreat - this.threatSmoothed) * Math.min(1, dt * 0.5);
     this.currentBeatPulse = Math.max(0, this.currentBeatPulse - dt * 3.5);
     GlobalShaderUniforms.uBeatPulse.value = this.currentBeatPulse;
 
     this.stepAccum += dt;
-    while (this.stepAccum >= this.stepDuration) {
-      this.stepAccum -= this.stepDuration;
+    while (this.stepAccum >= stepDuration) {
+      this.stepAccum -= stepDuration;
       this.triggerStep(waveActive, isBossOrLowHp);
       this.stepIndex = (this.stepIndex + 1) % 32;
     }
@@ -62,23 +81,27 @@ class AdaptiveMusicImpl {
     }
 
     const now = ctx.currentTime;
+    const chords = MAP_CHORDS[this.mapId] ?? MAP_CHORDS.sunny_backyard;
     const chordIdx = Math.floor(this.stepIndex / 8) % 4;
-    const chord = this.chords[chordIdx];
+    const chord = chords[chordIdx];
 
-    // Layer 1: Garden Pad (on start of each chord bar)
+    // Layer 1: Garden Pad
     if (this.stepIndex % 8 === 0) {
       for (const freq of chord) {
         this.note(ctx, duckGain, now, 'sine', freq, 2.2, 0.032);
       }
+      if (this.mapId === 'frosty_allotment') {
+        this.note(ctx, duckGain, now, 'sine', chord[2] * 4, 0.85, 0.02); // Winter bell layer
+      }
     }
 
-    // Layer 2: Plucks (when wave is active)
+    // Layer 2: Plucks
     if (waveActive) {
       const noteFreq = chord[this.stepIndex % chord.length] * 2;
       this.note(ctx, duckGain, now, 'triangle', noteFreq, 0.18, 0.036);
     }
 
-    // Layer 3: Drums (Threat > 40%)
+    // Layer 3: Drums
     if (waveActive && this.threatSmoothed > 0.4) {
       if (this.stepIndex % 4 === 0) {
         this.note(ctx, duckGain, now, 'sine', 110, 0.12, 0.06, 45);
@@ -88,10 +111,13 @@ class AdaptiveMusicImpl {
       }
     }
 
-    // Layer 4: Danger (Boss or Base HP < 25%)
+    // Layer 4: Danger + Boss lead
     if (isBossOrLowHp) {
       if (this.stepIndex % 2 === 0) {
         this.note(ctx, duckGain, now, 'sawtooth', chord[0] * 0.5, 0.22, 0.035);
+      }
+      if (this.bossPhase3 && this.stepIndex % 4 === 2) {
+        this.note(ctx, duckGain, now, 'square', chord[1] * 1.5, 0.16, 0.024);
       }
       this.hat(ctx, duckGain, now, 0.03, 0.022);
     }

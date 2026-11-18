@@ -72,12 +72,20 @@ export interface QualitySettings {
   bossCamera: boolean;
   damageMeter: boolean;
   masterVolume: number; // 0..1
+  volumeMusic: number; // 0..1
+  volumeSfx: number; // 0..1
+  volumeUi: number; // 0..1
+  textScale: number; // 100..140
   muted: boolean;
+}
+
+function isMobilePhone(): boolean {
+  return typeof window !== 'undefined' && window.innerWidth < 768;
 }
 
 class QualityManagerImpl {
   public settings: QualitySettings = {
-    tier: 'High',
+    tier: isMobilePhone() ? 'Low' : 'High',
     reducedMotion: false,
     screenShake: 1.0,
     colorblindMode: false,
@@ -85,6 +93,10 @@ class QualityManagerImpl {
     bossCamera: true,
     damageMeter: false,
     masterVolume: 0.7,
+    volumeMusic: 0.85,
+    volumeSfx: 0.9,
+    volumeUi: 0.8,
+    textScale: 100,
     muted: false,
   };
 
@@ -100,6 +112,9 @@ class QualityManagerImpl {
   public applySettings(partial: Partial<QualitySettings>, notify = true): void {
     const prevTier = this.settings.tier;
     Object.assign(this.settings, partial);
+    if (typeof document !== 'undefined') {
+      document.documentElement.style.setProperty('--ui-scale', `${(this.settings.textScale ?? 100) / 100}`);
+    }
     if (notify && prevTier !== this.settings.tier) {
       EventBus.emit('quality:changed', { tier: this.settings.tier, autoDropped: false });
     }

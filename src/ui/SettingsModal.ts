@@ -10,7 +10,7 @@ export class SettingsModal {
     this.root = document.createElement('div');
     this.root.className = 'modal-backdrop hidden';
     this.root.innerHTML = `
-      <div class="modal-card gloss-panel" style="width:620px;">
+      <div class="modal-card gloss-panel" style="width:650px;">
         <div class="modal-header">
           <div style="font-size:22px;font-weight:800;">⚙️ Settings & Accessibility</div>
           <button class="btn btn-rose btn-sm" id="set-close">Close</button>
@@ -62,6 +62,14 @@ export class SettingsModal {
         <input type="range" id="set-shake" min="0" max="100" value="${Math.round(s.screenShake * 100)}" style="width:100%;" />
       </div>
 
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:15px;">
+          <span>Text Scale (100–140%)</span>
+          <span id="scale-val">${s.textScale ?? 100}%</span>
+        </div>
+        <input type="range" id="set-textscale" min="100" max="140" value="${s.textScale ?? 100}" style="width:100%;" />
+      </div>
+
       <label style="display:flex;justify-content:space-between;align-items:center;font-size:15px;">
         <span>Colorblind Symbols on Rarities & Health Bars</span>
         <input type="checkbox" id="set-cb" ${s.colorblindMode ? 'checked' : ''} style="width:20px;height:20px;" />
@@ -77,17 +85,30 @@ export class SettingsModal {
         <input type="checkbox" id="set-bosscam" ${s.bossCamera ? 'checked' : ''} style="width:20px;height:20px;" />
       </label>
 
-      <div>
-        <div style="display:flex;justify-content:space-between;font-size:15px;">
-          <span>Master Audio Volume</span>
-          <span id="vol-val">${Math.round(s.masterVolume * 100)}%</span>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <div style="font-size:14px;">Master: <span id="vol-val">${Math.round(s.masterVolume * 100)}%</span></div>
+          <input type="range" id="set-vol" min="0" max="100" value="${Math.round(s.masterVolume * 100)}" style="width:100%;" />
         </div>
-        <input type="range" id="set-vol" min="0" max="100" value="${Math.round(s.masterVolume * 100)}" style="width:100%;" />
+        <div>
+          <div style="font-size:14px;">Music: <span id="vol-music-val">${Math.round((s.volumeMusic ?? 0.85) * 100)}%</span></div>
+          <input type="range" id="set-vol-music" min="0" max="100" value="${Math.round((s.volumeMusic ?? 0.85) * 100)}" style="width:100%;" />
+        </div>
+        <div>
+          <div style="font-size:14px;">SFX: <span id="vol-sfx-val">${Math.round((s.volumeSfx ?? 0.9) * 100)}%</span></div>
+          <input type="range" id="set-vol-sfx" min="0" max="100" value="${Math.round((s.volumeSfx ?? 0.9) * 100)}" style="width:100%;" />
+        </div>
+        <div>
+          <div style="font-size:14px;">UI Audio: <span id="vol-ui-val">${Math.round((s.volumeUi ?? 0.8) * 100)}%</span></div>
+          <input type="range" id="set-vol-ui" min="0" max="100" value="${Math.round((s.volumeUi ?? 0.8) * 100)}" style="width:100%;" />
+        </div>
       </div>
 
-      <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid rgba(255,255,255,0.15);">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding-top:8px;border-top:1px solid rgba(255,255,255,0.15);">
         <button class="btn btn-slate btn-sm" id="set-mute">${s.muted ? 'Unmute Audio' : 'Mute Audio'}</button>
-        <button class="btn btn-rose btn-sm" id="set-reset-save">Reset Save Data</button>
+        <button class="btn btn-sm" id="set-export">Export Save</button>
+        <button class="btn btn-sm" id="set-import">Import Save</button>
+        <button class="btn btn-rose btn-sm" id="set-reset-save">Reset Save</button>
       </div>
     `;
 
@@ -110,6 +131,12 @@ export class SettingsModal {
       body.querySelector('#shake-val')!.textContent = `${Math.round(v * 100)}%`;
       SaveManager.save();
     });
+    (body.querySelector('#set-textscale') as HTMLInputElement).addEventListener('input', (e) => {
+      const v = Number((e.target as HTMLInputElement).value);
+      QualityManager.applySettings({ textScale: v });
+      body.querySelector('#scale-val')!.textContent = `${v}%`;
+      SaveManager.save();
+    });
     (body.querySelector('#set-cb') as HTMLInputElement).addEventListener('change', (e) => {
       QualityManager.applySettings({ colorblindMode: (e.target as HTMLInputElement).checked });
       SaveManager.save();
@@ -122,19 +149,44 @@ export class SettingsModal {
       QualityManager.applySettings({ bossCamera: (e.target as HTMLInputElement).checked });
       SaveManager.save();
     });
-    (body.querySelector('#set-vol') as HTMLInputElement).addEventListener('input', (e) => {
-      const v = Number((e.target as HTMLInputElement).value) / 100;
-      QualityManager.applySettings({ masterVolume: v });
-      SynthAudio.syncVolume();
-      body.querySelector('#vol-val')!.textContent = `${Math.round(v * 100)}%`;
-      SaveManager.save();
-    });
+
+    const bindVol = (sel: string, spanSel: string, prop: 'masterVolume' | 'volumeMusic' | 'volumeSfx' | 'volumeUi') => {
+      (body.querySelector(sel) as HTMLInputElement).addEventListener('input', (e) => {
+        const v = Number((e.target as HTMLInputElement).value) / 100;
+        QualityManager.applySettings({ [prop]: v });
+        SynthAudio.syncVolume();
+        body.querySelector(spanSel)!.textContent = `${Math.round(v * 100)}%`;
+        SaveManager.save();
+      });
+    };
+    bindVol('#set-vol', '#vol-val', 'masterVolume');
+    bindVol('#set-vol-music', '#vol-music-val', 'volumeMusic');
+    bindVol('#set-vol-sfx', '#vol-sfx-val', 'volumeSfx');
+    bindVol('#set-vol-ui', '#vol-ui-val', 'volumeUi');
+
     body.querySelector('#set-mute')!.addEventListener('click', () => {
       QualityManager.applySettings({ muted: !QualityManager.settings.muted });
       SynthAudio.syncVolume();
       SaveManager.save();
       this.render();
     });
+
+    body.querySelector('#set-export')!.addEventListener('click', () => {
+      const b64 = SaveManager.exportSaveBase64();
+      void navigator.clipboard?.writeText(b64);
+      window.prompt('Copy your Base64 Save Backup:', b64);
+    });
+
+    body.querySelector('#set-import')!.addEventListener('click', () => {
+      const code = window.prompt('Paste Base64 Save Backup:');
+      if (code && SaveManager.importSaveBase64(code)) {
+        EventBus.emit('toast:show', { title: 'Save imported cleanly!', color: '#4ade80' });
+        this.render();
+      } else if (code) {
+        EventBus.emit('toast:show', { title: 'Invalid save backup code', color: '#f43f5e' });
+      }
+    });
+
     body.querySelector('#set-reset-save')!.addEventListener('click', () => {
       if (window.confirm('Reset all Seeds, Units, Quests, and Stats?')) {
         SaveManager.resetSave();

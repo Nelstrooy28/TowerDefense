@@ -4,10 +4,20 @@ import { rollRandomTrait, type TraitId } from '../data/TraitConfig';
 import { UNITS, type UnitDef } from '../data/UnitRegistry';
 import { CRATES, RARITIES, RARITY_ORDER, type RarityId } from '../data/RarityConfig';
 import type { MapId, DifficultyId } from '../data/MapRegistry';
+import { GARDEN_PASS_TIERS } from '../data/GameModesConfig';
 
-const SAVE_KEY = 'garden_bastion_save_v1';
+export const SAVE_KEY_V1 = 'garden_bastion_save_v1';
+export const SAVE_KEY_V2 = 'garden_bastion_save_v2';
 
-export type PotSkinId = 'default' | 'striped_ceramic' | 'mossy_stone' | 'crystal' | 'golden' | 'galaxy';
+export type SoilSkinId =
+  | 'garden_loam'
+  | 'mossy_stone'
+  | 'crystal_bed'
+  | 'golden_sand'
+  | 'galaxy_soil'
+  | 'lava_rock';
+
+export type TargetingModeValue = 'First' | 'Strongest' | 'Last' | 'Closest';
 
 export interface OwnedUnitData {
   unitId: string;
@@ -17,7 +27,8 @@ export interface OwnedUnitData {
   traitLocked: boolean;
   masteryXp: number;
   masteryLevel: number; // 0..10 (+1% damage/level)
-  potSkin: PotSkinId;
+  soilSkin: SoilSkinId;
+  isPrime?: boolean; // v3 §13.4 +12% all stats
 }
 
 export interface DailyQuestState {
@@ -39,6 +50,12 @@ export interface AchievementDef {
   rewardSeeds: number;
 }
 
+export interface LeaderboardEntry {
+  bestWave: number;
+  fastestClearSec: number;
+  topHit: number;
+}
+
 export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'first_godly', title: 'Divine Sprout', description: 'Pull your first Godly or Exclusive unit', icon: '✨', rewardSeeds: 150 },
   { id: 'beat_insane', title: 'Master Gardener', description: 'Clear any map on Insane difficulty', icon: '🏆', rewardSeeds: 300 },
@@ -46,10 +63,12 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'max_unit', title: 'Awakened Flora', description: 'Upgrade a unit to Lv.5 in a match', icon: '🌟', rewardSeeds: 100 },
   { id: 'synergy_master', title: 'Alchemist', description: 'Trigger 25 Element Synergies', icon: '⚗️', rewardSeeds: 120 },
   { id: 'trait_gold', title: 'Midas Touch', description: 'Roll a Golden or Celestial trait', icon: '👑', rewardSeeds: 150 },
+  { id: 'boss_slayer', title: 'Boss Slayer', description: 'Clear Boss Rush mode', icon: '🐉', rewardSeeds: 250 },
+  { id: 'volcano_insane', title: 'Magma Gardener', description: 'Clear Volcano Greenhouse on Insane (unlocks Lava Rock soil)', icon: '🌋', rewardSeeds: 350 },
 ];
 
-export interface SaveStateV1 {
-  version: 1;
+export interface SaveStateV2 {
+  version: 2;
   seeds: number;
   dewdrops: number;
   enchantedKeys: number;
@@ -75,6 +94,17 @@ export interface SaveStateV1 {
     cratesOpened: number;
     matchesWon: number;
   };
+  leaderboard: Record<string, Record<string, LeaderboardEntry>>;
+  gardenPass: {
+    season: number;
+    xp: number;
+    tier: number;
+    claimed: number[];
+  };
+  bestiarySeen: string[];
+  codexSeen: string[];
+  puzzleStars: Record<number, number>;
+  targetingMemory: Record<string, TargetingModeValue>;
   tutorialCompleted: boolean;
   tutorialSkipped: boolean;
   settings: QualitySettings;
@@ -118,9 +148,18 @@ function createDailyQuests(): DailyQuestState[] {
   ];
 }
 
-function createDefaultSave(): SaveStateV1 {
+export function mapV1PotSkinToSoilSkin(oldSkin?: string): SoilSkinId {
+  if (oldSkin === 'mossy_stone' || oldSkin === 'mossy') return 'mossy_stone';
+  if (oldSkin === 'crystal' || oldSkin === 'crystal_bed') return 'crystal_bed';
+  if (oldSkin === 'golden' || oldSkin === 'golden_sand') return 'golden_sand';
+  if (oldSkin === 'galaxy' || oldSkin === 'galaxy_soil') return 'galaxy_soil';
+  if (oldSkin === 'lava_rock') return 'lava_rock';
+  return 'garden_loam';
+}
+
+export function createDefaultSaveV2(): SaveStateV2 {
   return {
-    version: 1,
+    version: 2,
     seeds: 400,
     dewdrops: 5,
     enchantedKeys: 0,
@@ -138,7 +177,7 @@ function createDefaultSave(): SaveStateV1 {
         traitLocked: false,
         masteryXp: 0,
         masteryLevel: 0,
-        potSkin: 'default',
+        soilSkin: 'garden_loam',
       },
       cactus_striker: {
         unitId: 'cactus_striker',
@@ -148,7 +187,7 @@ function createDefaultSave(): SaveStateV1 {
         traitLocked: false,
         masteryXp: 0,
         masteryLevel: 0,
-        potSkin: 'default',
+        soilSkin: 'garden_loam',
       },
     },
     pity: {
@@ -167,14 +206,71 @@ function createDefaultSave(): SaveStateV1 {
       cratesOpened: 0,
       matchesWon: 0,
     },
+    leaderboard: {},
+    gardenPass: {
+      season: 1,
+      xp: 0,
+      tier: 0,
+      claimed: [],
+    },
+    bestiarySeen: [],
+    codexSeen: [],
+    puzzleStars: {},
+    targetingMemory: {},
     tutorialCompleted: false,
     tutorialSkipped: false,
     settings: { ...QualityManager.settings },
   };
 }
 
+export function migrateSaveToV2(rawParsed: Record<string, unknown>): SaveStateV2 {
+  const def = createDefaultSaveV2();
+  const rawOwned = (rawParsed.owned ?? {}) as Record<string, Record<string, unknown>>;
+  const migratedOwned: Record<string, OwnedUnitData> = {};
+
+  for (const [k, u] of Object.entries(rawOwned)) {
+    const soilSkin = mapV1PotSkinToSoilSkin((u.soilSkin as string) ?? (u.potSkin as string));
+    migratedOwned[k] = {
+      unitId: String(u.unitId ?? k),
+      copies: Number(u.copies ?? 1),
+      fusedStacks: Number(u.fusedStacks ?? 0),
+      trait: (u.trait as TraitId) ?? 'Sprouting',
+      traitLocked: Boolean(u.traitLocked),
+      masteryXp: Number(u.masteryXp ?? 0),
+      masteryLevel: Number(u.masteryLevel ?? 0),
+      soilSkin,
+      isPrime: Boolean(u.isPrime),
+    };
+  }
+
+  return {
+    ...def,
+    ...(rawParsed as Partial<SaveStateV2>),
+    version: 2,
+    owned: Object.keys(migratedOwned).length > 0 ? migratedOwned : def.owned,
+    pity: { ...def.pity, ...((rawParsed.pity as object) ?? {}) },
+    stats: { ...def.stats, ...((rawParsed.stats as object) ?? {}) },
+    settings: { ...def.settings, ...((rawParsed.settings as object) ?? {}) },
+    loadout:
+      Array.isArray(rawParsed.loadout) && rawParsed.loadout.length === 6
+        ? (rawParsed.loadout as Array<string | null>)
+        : def.loadout,
+    dailyQuests:
+      Array.isArray(rawParsed.dailyQuests) && rawParsed.dailyQuests.length === 3
+        ? (rawParsed.dailyQuests as DailyQuestState[])
+        : def.dailyQuests,
+    achievements: { ...((rawParsed.achievements as Record<string, boolean>) ?? {}) },
+    leaderboard: { ...((rawParsed.leaderboard as SaveStateV2['leaderboard']) ?? {}) },
+    gardenPass: { ...def.gardenPass, ...((rawParsed.gardenPass as object) ?? {}) },
+    bestiarySeen: Array.isArray(rawParsed.bestiarySeen) ? (rawParsed.bestiarySeen as string[]) : [],
+    codexSeen: Array.isArray(rawParsed.codexSeen) ? (rawParsed.codexSeen as string[]) : [],
+    puzzleStars: { ...((rawParsed.puzzleStars as Record<number, number>) ?? {}) },
+    targetingMemory: { ...((rawParsed.targetingMemory as Record<string, TargetingModeValue>) ?? {}) },
+  };
+}
+
 class SaveManagerImpl {
-  public data: SaveStateV1 = createDefaultSave();
+  public data: SaveStateV2 = createDefaultSaveV2();
 
   constructor() {
     this.load();
@@ -206,40 +302,32 @@ class SaveManagerImpl {
 
   public load(): void {
     try {
-      const raw = localStorage.getItem(SAVE_KEY);
-      if (!raw) {
-        this.data = createDefaultSave();
+      const rawV2 = localStorage.getItem(SAVE_KEY_V2);
+      if (rawV2) {
+        const parsed = JSON.parse(rawV2) as Record<string, unknown>;
+        this.data = migrateSaveToV2(parsed);
+        this.checkDailyReset();
+        QualityManager.applySettings(this.data.settings, false);
+        return;
+      }
+
+      // Migrate v1 -> v2, keeping v1 intact (§21)
+      const rawV1 = localStorage.getItem(SAVE_KEY_V1);
+      if (rawV1) {
+        const parsedV1 = JSON.parse(rawV1) as Record<string, unknown>;
+        this.data = migrateSaveToV2(parsedV1);
+        this.checkDailyReset();
+        QualityManager.applySettings(this.data.settings, false);
         this.save();
         return;
       }
-      const parsed = JSON.parse(raw) as Partial<SaveStateV1>;
-      this.data = this.migrate(parsed);
-      this.checkDailyReset();
-      QualityManager.applySettings(this.data.settings, false);
+
+      this.data = createDefaultSaveV2();
+      this.save();
     } catch {
-      this.data = createDefaultSave();
+      this.data = createDefaultSaveV2();
       this.save();
     }
-  }
-
-  private migrate(parsed: Partial<SaveStateV1>): SaveStateV1 {
-    const def = createDefaultSave();
-    const merged: SaveStateV1 = {
-      ...def,
-      ...parsed,
-      version: 1,
-      pity: { ...def.pity, ...(parsed.pity ?? {}) },
-      stats: { ...def.stats, ...(parsed.stats ?? {}) },
-      settings: { ...def.settings, ...(parsed.settings ?? {}) },
-      owned: { ...def.owned, ...(parsed.owned ?? {}) },
-      loadout: Array.isArray(parsed.loadout) && parsed.loadout.length === 6 ? parsed.loadout : def.loadout,
-      dailyQuests:
-        Array.isArray(parsed.dailyQuests) && parsed.dailyQuests.length === 3
-          ? parsed.dailyQuests
-          : def.dailyQuests,
-      achievements: { ...(parsed.achievements ?? {}) },
-    };
-    return merged;
   }
 
   public checkDailyReset(): void {
@@ -254,17 +342,34 @@ class SaveManagerImpl {
   public save(): void {
     this.data.settings = { ...QualityManager.settings };
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(this.data));
+      localStorage.setItem(SAVE_KEY_V2, JSON.stringify(this.data));
     } catch {
-      // Ignore storage quota errors cleanly
+      // Ignore storage quota errors
     }
     EventBus.emit('save:updated', undefined);
   }
 
   public resetSave(): void {
-    this.data = createDefaultSave();
+    this.data = createDefaultSaveV2();
     QualityManager.applySettings(this.data.settings, true);
     this.save();
+  }
+
+  public exportSaveBase64(): string {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(this.data))));
+  }
+
+  public importSaveBase64(encoded: string): boolean {
+    try {
+      const json = decodeURIComponent(escape(atob(encoded.trim())));
+      const parsed = JSON.parse(json) as Record<string, unknown>;
+      this.data = migrateSaveToV2(parsed);
+      QualityManager.applySettings(this.data.settings, true);
+      this.save();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   public addSeeds(amount: number): void {
@@ -286,13 +391,105 @@ class SaveManagerImpl {
       this.data.seeds += 50;
       needed = this.data.playerLevel * 200;
     }
+
+    // Garden Pass XP
+    this.data.gardenPass.xp += Math.round(xp);
+    let newTier = this.data.gardenPass.tier;
+    for (const t of GARDEN_PASS_TIERS) {
+      if (this.data.gardenPass.xp >= t.xpRequired && t.tier > newTier) {
+        newTier = t.tier;
+      }
+    }
+    if (newTier > this.data.gardenPass.tier) {
+      this.data.gardenPass.tier = newTier;
+      EventBus.emit('toast:show', {
+        title: `🌿 Garden Pass Tier ${newTier} Reached!`,
+        subtitle: 'Claim your reward in the Pass menu',
+        color: '#4ade80',
+      });
+    }
     this.save();
+  }
+
+  public claimGardenPassTier(tier: number): boolean {
+    if (this.data.gardenPass.tier < tier || this.data.gardenPass.claimed.includes(tier)) return false;
+    const def = GARDEN_PASS_TIERS.find((t) => t.tier === tier);
+    if (!def) return false;
+    this.data.gardenPass.claimed.push(tier);
+    if (def.seeds) this.data.seeds += def.seeds;
+    if (def.dewdrops) this.data.dewdrops += def.dewdrops;
+    if (def.unitId && !this.data.owned[def.unitId]) {
+      this.data.owned[def.unitId] = {
+        unitId: def.unitId,
+        copies: 1,
+        fusedStacks: 0,
+        trait: rollRandomTrait(),
+        traitLocked: false,
+        masteryXp: 0,
+        masteryLevel: 0,
+        soilSkin: 'garden_loam',
+      };
+    }
+    this.save();
+    return true;
+  }
+
+  public recordLeaderboard(
+    mapId: string,
+    difficulty: string,
+    wave: number,
+    clearSec: number,
+    topHit: number
+  ): void {
+    if (!this.data.leaderboard[mapId]) this.data.leaderboard[mapId] = {};
+    const prev = this.data.leaderboard[mapId][difficulty] ?? {
+      bestWave: 0,
+      fastestClearSec: 0,
+      topHit: 0,
+    };
+    prev.bestWave = Math.max(prev.bestWave, wave);
+    if (clearSec > 0 && (prev.fastestClearSec === 0 || clearSec < prev.fastestClearSec)) {
+      prev.fastestClearSec = Math.round(clearSec);
+    }
+    prev.topHit = Math.max(prev.topHit, Math.round(topHit));
+    this.data.leaderboard[mapId][difficulty] = prev;
+    this.save();
+  }
+
+  public markEnemySeen(enemyId: string): void {
+    if (!this.data.bestiarySeen.includes(enemyId)) {
+      this.data.bestiarySeen.push(enemyId);
+    }
+  }
+
+  public markSynergySeen(synergyId: string): void {
+    if (!this.data.codexSeen.includes(synergyId)) {
+      this.data.codexSeen.push(synergyId);
+      this.save();
+    }
   }
 
   public getUnitBonusDamageMult(unitId: string): number {
     const owned = this.data.owned[unitId];
     if (!owned) return 1.0;
-    return 1 + owned.fusedStacks * 0.05 + owned.masteryLevel * 0.01;
+    const primeMult = owned.isPrime ? 1.12 : 1.0;
+    return (1 + owned.fusedStacks * 0.05 + owned.masteryLevel * 0.01) * primeMult;
+  }
+
+  public getUnitPrimeStatMult(unitId: string): number {
+    return this.data.owned[unitId]?.isPrime ? 1.12 : 1.0;
+  }
+
+  public evolveUnitToPrime(unitId: string): boolean {
+    const owned = this.data.owned[unitId];
+    if (!owned || owned.isPrime || owned.masteryLevel < 10 || this.data.dewdrops < 3) {
+      return false;
+    }
+    this.data.dewdrops -= 3;
+    owned.isPrime = true;
+    owned.soilSkin = 'golden_sand';
+    this.save();
+    return true;
   }
 
   public addUnitMasteryXp(unitId: string, dmgDealt: number): void {
@@ -304,32 +501,35 @@ class SaveManagerImpl {
       if (owned.masteryXp < req) break;
       owned.masteryXp -= req;
       owned.masteryLevel++;
-      if (owned.masteryLevel === 5 && owned.potSkin === 'default') {
-        owned.potSkin = 'striped_ceramic';
+      if (owned.masteryLevel === 5 && owned.soilSkin === 'garden_loam') {
+        owned.soilSkin = 'mossy_stone';
       }
       if (owned.masteryLevel === 10) {
-        owned.potSkin = 'golden';
+        owned.soilSkin = 'golden_sand';
       }
     }
   }
 
-  public getUnlockedPotSkins(unitId: string): PotSkinId[] {
+  public getUnlockedSoilSkins(unitId: string): SoilSkinId[] {
     const owned = this.data.owned[unitId];
-    const skins: PotSkinId[] = ['default'];
+    const skins: SoilSkinId[] = ['garden_loam'];
     if (!owned) return skins;
     if (owned.masteryLevel >= 5) {
-      skins.push('striped_ceramic', 'mossy_stone');
+      skins.push('mossy_stone');
     }
     if (owned.masteryLevel >= 10) {
-      skins.push('crystal', 'golden', 'galaxy');
+      skins.push('crystal_bed', 'golden_sand', 'galaxy_soil');
+    }
+    if (this.data.achievements.volcano_insane) {
+      skins.push('lava_rock');
     }
     return skins;
   }
 
-  public setPotSkin(unitId: string, skin: PotSkinId): void {
+  public setSoilSkin(unitId: string, skin: SoilSkinId): void {
     const owned = this.data.owned[unitId];
     if (!owned) return;
-    owned.potSkin = skin;
+    owned.soilSkin = skin;
     this.save();
   }
 
@@ -476,7 +676,7 @@ class SaveManagerImpl {
           traitLocked: false,
           masteryXp: 0,
           masteryLevel: 0,
-          potSkin: 'default',
+          soilSkin: 'garden_loam',
         };
         const emptySlot = this.data.loadout.indexOf(null);
         if (emptySlot !== -1) {
@@ -496,7 +696,6 @@ class SaveManagerImpl {
       results.push({ unit, rarity, trait, isNew, dewdropsGained });
     }
 
-    // Sort 5x results so highest rarity opens last for suspense (§4.1.1)
     if (results.length > 1) {
       results.sort((a, b) => RARITIES[a.rarity].order - RARITIES[b.rarity].order);
     }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { EventBus } from '../core/EventBus';
 import { SaveManager } from '../core/SaveManager';
+import { TimeScale } from '../core/TimeScale';
 import { getUnitById } from '../data/UnitRegistry';
 import { createHologramGhostMaterial } from '../rendering/ShaderLib';
 import { MeshFactory } from '../rendering/MeshFactory';
@@ -15,6 +16,7 @@ export class InputManager {
 
   public activeSlotIndex: number | null = null;
   public selectedTower: TowerEntity | null = null;
+  public photoMode = false;
 
   // Hologram placement preview group
   private previewGroup = new THREE.Group();
@@ -25,7 +27,15 @@ export class InputManager {
   private sprinklerLines: THREE.LineSegments;
   private sprinklerPositions = new Float32Array(24 * 3);
 
+  // Alt-held all-ranges pool (up to 40 towers) (§16)
+  private allRangeRings: THREE.Mesh[] = [];
   private selectedRangeRing: THREE.Mesh;
+
+  // Touch confirmation state (§15)
+  private touchPendingPos: { x: number; z: number } | null = null;
+  private touchConfirmBtn: HTMLButtonElement;
+  private longPressTimer = 0;
+
   private readonly _plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private readonly _hitPt = new THREE.Vector3();
 
@@ -67,11 +77,47 @@ export class InputManager {
     this.selectedRangeRing.visible = false;
     this.match.engine.scene.add(this.selectedRangeRing);
 
+    const ringGeo = new THREE.RingGeometry(0.96, 1.0, 36);
+    ringGeo.rotateX(-Math.PI / 2);
+    for (let i = 0; i < 40; i++) {
+      const m = new THREE.Mesh(
+        ringGeo,
+        new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+      );
+      m.visible = false;
+      this.match.engine.scene.add(m);
+      this.allRangeRings.push(m);
+    }
+
+    this.touchConfirmBtn = document.createElement('button');
+    this.touchConfirmBtn.className = 'btn btn-green hidden touch-place-btn';
+    this.touchConfirmBtn.textContent = '✓ Place Unit';
+    document.body.appendChild(this.touchConfirmBtn);
+    this.touchConfirmBtn.addEventListener('click', () => {
+      if (this.activeSlotIndex !== null && this.touchPendingPos) {
+        const uId = SaveManager.data.loadout[this.activeSlotIndex];
+        if (uId) {
+          const placed = this.match.placeTower(uId, this.touchPendingPos.x, this.touchPendingPos.z);
+          if (placed) {
+            this.selectSlot(null);
+            this.selectTower(placed);
+          }
+        }
+      }
+      this.clearTouchConfirm();
+    });
+
     this.bindEvents();
+  }
+
+  private clearTouchConfirm(): void {
+    this.touchPendingPos = null;
+    this.touchConfirmBtn.classList.add('hidden');
   }
 
   public selectSlot(slotIndex: number | null): void {
     this.activeSlotIndex = slotIndex;
+    this.clearTouchConfirm();
     if (this.ghostMeshGroup) {
       this.previewGroup.remove(this.ghostMeshGroup);
       this.ghostMeshGroup = null;
@@ -83,11 +129,12 @@ export class InputManager {
         this.activeSlotIndex = null;
         this.previewGroup.visible = false;
         this.sprinklerLines.visible = false;
+        this.match.rootNetwork.computeLinks(this.match.towers);
         EventBus.emit('placement:slot_selected', { slotIndex: null });
         return;
       }
       const unit = getUnitById(unitId);
-      const rig = MeshFactory.buildTowerRig(unitId, 0, unit.rarity, 'Sprouting', 'default');
+      const rig = MeshFactory.buildTowerRig(unitId, 0, unit.rarity, 'Sprouting', 'garden_loam');
       rig.root.traverse((obj) => {
         if ((obj as THREE.Mesh).isMesh) {
           (obj as THREE.Mesh).material = this.ghostMat;
@@ -103,6 +150,7 @@ export class InputManager {
     } else {
       this.previewGroup.visible = false;
       this.sprinklerLines.visible = false;
+      this.match.rootNetwork.computeLinks(this.match.towers);
     }
 
     EventBus.emit('placement:slot_selected', { slotIndex: this.activeSlotIndex });
@@ -122,14 +170,66 @@ export class InputManager {
     EventBus.emit('tower:selected', { towerId: tower?.id ?? null });
   }
 
+  private setAltOverlay(active: boolean): void {
+    this.match.rootNetwork.altHeld = active;
+    this.match.rootNetwork.computeLinks(this.match.towers);
+    for (let i = 0; i < this.allRangeRings.length; i++) {
+      const ring = this.allRangeRings[i];
+      if (!active || i >= this.match.towers.length) {
+        ring.visible = false;
+        continue;
+      }
+      const t = this.match.towers[i];
+      const rng = t.getEffectiveRange(this.match.weather.activeDef?.rangeMult ?? 1);
+      if (rng <= 0) {
+        ring.visible = false;
+        continue;
+      }
+      ring.position.set(t.position.x, t.position.y + 0.07, t.position.z);
+      ring.scale.setScalar(rng);
+      ring.visible = true;
+    }
+  }
+
   private bindEvents(): void {
     this.canvas.addEventListener('pointermove', (e) => {
-      if (!this.match.inMatch || this.activeSlotIndex === null) return;
+      if (!this.match.inMatch || this.activeSlotIndex === null || e.pointerType === 'touch') return;
       this.updatePreviewAtClientPos(e.clientX, e.clientY);
     });
 
     this.canvas.addEventListener('pointerdown', (e) => {
+      // Living Hub Garden click -> open Inventory (§13.1)
+      if (!this.match.inMatch && e.button === 0) {
+        this.updateNdc(e.clientX, e.clientY);
+        this.raycaster.setFromCamera(this.pointerNdc, this.match.engine.cameraRig.camera);
+        for (const hp of this.match.hubPlants) {
+          if (this.raycaster.intersectObject(hp.root, true).length > 0) {
+            EventBus.emit('ui:open_unit_inventory', { unitId: hp.unitId });
+            return;
+          }
+        }
+        return;
+      }
+
       if (!this.match.inMatch || e.button !== 0) return;
+
+      // Touch two-step placement (§15)
+      if (e.pointerType === 'touch' && this.activeSlotIndex !== null) {
+        const pt = this.raycastGroundOrCliff(e.clientX, e.clientY);
+        if (pt) {
+          if (
+            this.touchPendingPos &&
+            Math.hypot(pt.x - this.touchPendingPos.x, pt.z - this.touchPendingPos.z) < 1.2
+          ) {
+            this.touchConfirmBtn.click();
+          } else {
+            this.touchPendingPos = { x: pt.x, z: pt.z };
+            this.updatePreviewAtClientPos(e.clientX, e.clientY);
+            this.touchConfirmBtn.classList.remove('hidden');
+          }
+        }
+        return;
+      }
 
       if (this.activeSlotIndex !== null) {
         const unitId = SaveManager.data.loadout[this.activeSlotIndex];
@@ -145,7 +245,6 @@ export class InputManager {
         return;
       }
 
-      // Otherwise try selecting an existing tower
       this.updateNdc(e.clientX, e.clientY);
       this.raycaster.setFromCamera(this.pointerNdc, this.match.engine.cameraRig.camera);
       let hitTower: TowerEntity | null = null;
@@ -158,18 +257,65 @@ export class InputManager {
         }
       }
       this.selectTower(hitTower);
+
+      if (e.pointerType === 'touch' && hitTower) {
+        this.longPressTimer = window.setTimeout(() => this.setAltOverlay(true), 450);
+      }
+    });
+
+    window.addEventListener('pointerup', () => {
+      if (this.longPressTimer) {
+        clearTimeout(this.longPressTimer);
+        this.longPressTimer = 0;
+        this.setAltOverlay(false);
+      }
     });
 
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'AltLeft' || e.code === 'AltRight') {
+        e.preventDefault();
+        if (this.match.inMatch) this.setAltOverlay(true);
+      }
+
+      // F2 Photo Mode (§16)
+      if (e.code === 'F2') {
+        e.preventDefault();
+        this.photoMode = !this.photoMode;
+        this.match.engine.cameraRig.photoMode = this.photoMode;
+        document.getElementById('ui-root')?.classList.toggle('photo-mode-hidden', this.photoMode);
+        EventBus.emit('toast:show', {
+          title: this.photoMode ? '📷 Photo Mode ON (F2 to exit)' : 'Photo Mode OFF',
+          color: '#38bdf8',
+        });
+        return;
+      }
+
       if (!this.match.inMatch) return;
-      if (e.code >= 'Digit1' && e.code <= 'Digit6') {
+
+      if (e.code === 'KeyP') {
+        TimeScale.togglePause();
+      } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
+        e.preventDefault();
+        this.match.undoLastPlacement();
+      } else if (e.code === 'Tab') {
+        e.preventDefault();
+        if (this.match.towers.length > 0) {
+          const curIdx = this.selectedTower ? this.match.towers.indexOf(this.selectedTower) : -1;
+          const next = this.match.towers[(curIdx + 1) % this.match.towers.length];
+          this.selectTower(next);
+        }
+      } else if (e.code >= 'Digit1' && e.code <= 'Digit6') {
         const idx = Number(e.code.replace('Digit', '')) - 1;
         this.selectSlot(this.activeSlotIndex === idx ? null : idx);
       } else if (e.code === 'Escape') {
         this.selectSlot(null);
         this.selectTower(null);
       } else if ((e.code === 'KeyU' || e.code === 'KeyF') && this.selectedTower) {
-        this.match.upgradeTower(this.selectedTower);
+        if (e.shiftKey && e.code === 'KeyU') {
+          this.match.upgradeMaxAffordable(this.selectedTower);
+        } else {
+          this.match.upgradeTower(this.selectedTower);
+        }
         this.selectTower(this.selectedTower);
       } else if ((e.code === 'KeyX' || e.code === 'Backspace') && this.selectedTower) {
         const t = this.selectedTower;
@@ -184,6 +330,12 @@ export class InputManager {
         if (abilityTowers[idx]) {
           this.match.abilities.activate(abilityTowers[idx], this.match.towers, this.match.enemies);
         }
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'AltLeft' || e.code === 'AltRight') {
+        this.setAltOverlay(false);
       }
     });
   }
@@ -228,7 +380,9 @@ export class InputManager {
     (this.rangeRing.material as THREE.MeshBasicMaterial).color.setHex(colHex);
     (this.footprintRing.material as THREE.MeshBasicMaterial).color.setHex(colHex);
 
-    // Buff link lines to nearby Speed Sprinklers (§9.5)
+    // §5 Root Network Ghost Link Preview
+    this.match.rootNetwork.computeLinks(this.match.towers, unitId, pt.x, pt.z);
+
     let lineCount = 0;
     for (const t of this.match.towers) {
       if (lineCount >= 12) break;

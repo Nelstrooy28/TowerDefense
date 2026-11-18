@@ -28,9 +28,10 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
-      - name: Type-check & Build production bundle
+      - name: Type-check, Unit Tests & Build production bundle
         run: |
           npm run typecheck
+          npm test
           npm run build
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

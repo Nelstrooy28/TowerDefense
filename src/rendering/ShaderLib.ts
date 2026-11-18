@@ -77,6 +77,51 @@ export function createDissolveShaderMaterial(
   });
 }
 
+/**
+ * Fix F1 (§2): Pooled 32 dissolve ShaderMaterials so zero new materials are allocated per enemy kill.
+ */
+class DissolveMaterialPoolImpl {
+  private pool: Array<{ mat: THREE.ShaderMaterial; inUse: boolean }> = [];
+  private readonly capacity = 32;
+
+  private ensureInit(): void {
+    if (this.pool.length > 0) return;
+    for (let i = 0; i < this.capacity; i++) {
+      this.pool.push({
+        mat: createDissolveShaderMaterial(0x64748b, 0x4ade80),
+        inUse: false,
+      });
+    }
+  }
+
+  public acquire(baseColor: number, edgeColor: number): THREE.ShaderMaterial | null {
+    this.ensureInit();
+    for (const item of this.pool) {
+      if (!item.inUse) {
+        item.inUse = true;
+        item.mat.uniforms.uBaseColor.value.setHex(baseColor);
+        item.mat.uniforms.uEdgeColor.value.setHex(edgeColor);
+        item.mat.uniforms.uThreshold.value = 0;
+        return item.mat;
+      }
+    }
+    return null;
+  }
+
+  public release(mat: THREE.ShaderMaterial | null): void {
+    if (!mat) return;
+    for (const item of this.pool) {
+      if (item.mat === mat) {
+        item.inUse = false;
+        item.mat.uniforms.uThreshold.value = 0;
+        return;
+      }
+    }
+  }
+}
+
+export const DissolveMaterialPool = new DissolveMaterialPoolImpl();
+
 export function createShockwaveMaterial(colorHex: number): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {

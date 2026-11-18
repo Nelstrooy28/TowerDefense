@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { getUnitById, type UnitDef } from '../data/UnitRegistry';
 import { RARITIES } from '../data/RarityConfig';
 
-export type DecalType = 'tomato' | 'scorch' | 'frost' | 'slime' | 'crater' | 'vine' | 'puddle';
+export type DecalType = 'tomato' | 'scorch' | 'frost' | 'slime' | 'crater' | 'vine' | 'puddle' | 'poison' | 'lava' | 'crack';
 
 class ProceduralTexturesImpl {
   private contactShadowTex: THREE.CanvasTexture | null = null;
   private noiseTex: THREE.CanvasTexture | null = null;
   private runeStripTex: THREE.CanvasTexture | null = null;
   private softCircleTex: THREE.CanvasTexture | null = null;
+  private statusSheetTex: THREE.CanvasTexture | null = null;
   private decalTextures = new Map<DecalType, THREE.CanvasTexture>();
   private portraitUrls = new Map<string, string>();
 
@@ -45,6 +46,51 @@ class ProceduralTexturesImpl {
     return this.softCircleTex;
   }
 
+  /**
+   * Fix F2 (§2): Shared sprite-sheet texture for 3D billboard status icons.
+   * Tiles 0..7: burn, chill, freeze, bleed, stun, wet, poison, shield
+   */
+  public getStatusIconSpriteSheet(): THREE.CanvasTexture {
+    if (this.statusSheetTex) return this.statusSheetTex;
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, 512, 64);
+
+    const drawTile = (idx: number, bg: string, glyph: string) => {
+      const cx = idx * 64 + 32;
+      ctx.fillStyle = bg;
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cx, 32, 24, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 28px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(glyph, cx, 34);
+    };
+
+    drawTile(0, '#ea580c', '🔥'); // burn
+    drawTile(1, '#38bdf8', '❄'); // chill
+    drawTile(2, '#0284c7', '🧊'); // freeze
+    drawTile(3, '#e11d48', '🩸'); // bleed
+    drawTile(4, '#eab308', '💫'); // stun
+    drawTile(5, '#06b6d4', '💧'); // wet
+    drawTile(6, '#84cc16', '☠'); // poison
+    drawTile(7, '#64748b', '🛡'); // shield
+
+    this.statusSheetTex = new THREE.CanvasTexture(canvas);
+    this.statusSheetTex.minFilter = THREE.LinearFilter;
+    this.statusSheetTex.magFilter = THREE.LinearFilter;
+    this.statusSheetTex.needsUpdate = true;
+    return this.statusSheetTex;
+  }
+
   public getNoiseTexture(): THREE.CanvasTexture {
     if (this.noiseTex) return this.noiseTex;
     const size = 128;
@@ -53,7 +99,6 @@ class ProceduralTexturesImpl {
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
     const img = ctx.createImageData(size, size);
-    // Tileable value noise
     const grid = 16;
     const vals: number[] = [];
     for (let i = 0; i < grid * grid; i++) vals.push(Math.random());
@@ -103,7 +148,6 @@ class ProceduralTexturesImpl {
     ctx.strokeStyle = '#ffffff';
     ctx.fillStyle = '#ffffff';
     ctx.lineWidth = 3;
-    // Outer arcs and arcane glyphs
     ctx.beginPath();
     ctx.moveTo(0, 8);
     ctx.lineTo(512, 8);
@@ -178,20 +222,20 @@ class ProceduralTexturesImpl {
         ctx.ellipse(cx + Math.cos(a) * 18, cy + Math.sin(a) * 18, 4, 2, a, 0, Math.PI * 2);
         ctx.fill();
       }
-    } else if (type === 'scorch' || type === 'crater') {
+    } else if (type === 'scorch' || type === 'crater' || type === 'crack') {
       const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, 56);
-      grad.addColorStop(0, type === 'crater' ? 'rgba(20, 14, 12, 0.92)' : 'rgba(24, 20, 18, 0.85)');
+      grad.addColorStop(0, type === 'crack' ? 'rgba(69, 26, 3, 0.7)' : type === 'crater' ? 'rgba(20, 14, 12, 0.92)' : 'rgba(24, 20, 18, 0.85)');
       grad.addColorStop(0.45, 'rgba(55, 35, 24, 0.58)');
       grad.addColorStop(1, 'rgba(20, 14, 12, 0)');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, 128, 128);
-      if (type === 'crater') {
-        ctx.strokeStyle = 'rgba(251, 146, 60, 0.7)';
+      if (type === 'crater' || type === 'crack') {
+        ctx.strokeStyle = type === 'crack' ? 'rgba(91, 58, 26, 0.85)' : 'rgba(251, 146, 60, 0.7)';
         ctx.lineWidth = 3;
         for (let i = 0; i < 8; i++) {
           const a = (i / 8) * Math.PI * 2;
           ctx.beginPath();
-          ctx.moveTo(cx + Math.cos(a) * 12, cy + Math.sin(a) * 12);
+          ctx.moveTo(cx + Math.cos(a) * 10, cy + Math.sin(a) * 10);
           ctx.lineTo(cx + Math.cos(a + 0.1) * 46, cy + Math.sin(a + 0.1) * 46);
           ctx.stroke();
         }
@@ -214,6 +258,24 @@ class ProceduralTexturesImpl {
         ctx.lineTo(cx + Math.cos(a) * 44, cy + Math.sin(a) * 44);
         ctx.stroke();
       }
+    } else if (type === 'poison') {
+      const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, 56);
+      grad.addColorStop(0, 'rgba(132, 204, 22, 0.78)');
+      grad.addColorStop(0.55, 'rgba(168, 85, 247, 0.45)');
+      grad.addColorStop(1, 'rgba(132, 204, 22, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 56, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (type === 'lava') {
+      const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, 54);
+      grad.addColorStop(0, 'rgba(253, 224, 71, 0.9)');
+      grad.addColorStop(0.4, 'rgba(249, 115, 22, 0.75)');
+      grad.addColorStop(1, 'rgba(153, 27, 27, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 54, 0, Math.PI * 2);
+      ctx.fill();
     } else if (type === 'slime' || type === 'puddle') {
       const grad = ctx.createRadialGradient(cx, cy, 8, cx, cy, 54);
       if (type === 'slime') {
@@ -271,13 +333,12 @@ class ProceduralTexturesImpl {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, 128, 128);
 
-    // Subtle starburst
     ctx.fillStyle = 'rgba(255,255,255,0.12)';
     ctx.beginPath();
     ctx.arc(64, 58, 44, 0, Math.PI * 2);
     ctx.fill();
 
-    // Natural Grassy Turf Hillock & Ground Roots (no flowerpot)
+    // Natural Grassy Turf Hillock & Ground Roots
     ctx.fillStyle = '#573b26';
     ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 3.5;
@@ -289,7 +350,6 @@ class ProceduralTexturesImpl {
     ctx.fill();
     ctx.stroke();
 
-    // Spreading roots gripping the soil
     ctx.strokeStyle = '#6b4423';
     ctx.lineWidth = 6;
     ctx.lineCap = 'round';
@@ -302,7 +362,6 @@ class ProceduralTexturesImpl {
     ctx.lineTo(64, 112);
     ctx.stroke();
 
-    // Basal green leaves
     ctx.fillStyle = '#22c55e';
     ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 2.5;
@@ -328,7 +387,6 @@ class ProceduralTexturesImpl {
     ctx.lineWidth = 3.5;
     ctx.strokeStyle = '#0f172a';
 
-    // Distinct silhouette per unit
     if (unit.id === 'tomato_tosser') {
       ctx.fillStyle = primary;
       ctx.beginPath();
@@ -464,6 +522,41 @@ class ProceduralTexturesImpl {
       ctx.fillStyle = accent;
       ctx.fillRect(48, 42, 10, 6);
       ctx.fillRect(70, 42, 10, 6);
+    } else if (unit.id === 'bamboo_archer') {
+      ctx.fillStyle = primary;
+      ctx.fillRect(57, 16, 14, 62);
+      ctx.strokeRect(57, 16, 14, 62);
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(42, 26);
+      ctx.quadraticCurveTo(84, 44, 42, 66);
+      ctx.stroke();
+    } else if (unit.id === 'puffball_mushroom') {
+      ctx.fillStyle = primary;
+      ctx.beginPath();
+      ctx.arc(64, 48, 26, Math.PI, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = secondary;
+      ctx.beginPath();
+      ctx.arc(54, 38, 5, 0, Math.PI * 2);
+      ctx.arc(72, 34, 6, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (unit.id === 'sunflower_beacon') {
+      ctx.fillStyle = primary;
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(64 + Math.cos(a) * 18, 44 + Math.sin(a) * 18, 9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = secondary;
+      ctx.beginPath();
+      ctx.arc(64, 44, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     } else {
       // Chrono-Bloom
       ctx.fillStyle = primary;

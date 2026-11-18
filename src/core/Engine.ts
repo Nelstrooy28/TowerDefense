@@ -9,6 +9,7 @@ import { EventBus } from './EventBus';
 import { PostFXController } from '../rendering/PostFX';
 import { ProceduralTextures } from '../rendering/ProceduralTextures';
 import { GlobalShaderUniforms } from '../rendering/ShaderLib';
+import type { SeasonId } from '../data/WeatherConfig';
 
 export interface DebugMetrics {
   fps: number;
@@ -54,6 +55,7 @@ export class Engine {
       canvas,
       antialias: true,
       powerPreference: 'high-performance',
+      preserveDrawingBuffer: true, // supports F2 Photo Mode PNG export (§16)
     });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -154,9 +156,29 @@ export class Engine {
     });
   }
 
+  public warmUpShaders(): void {
+    try {
+      this.renderer.compile(this.scene, this.cameraRig.camera);
+    } catch {
+      // Ignore WebGL headless errors cleanly
+    }
+  }
+
+  public captureScreenshot(): void {
+    this.composer.render();
+    const url = this.renderer.domElement.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `garden-bastion-${Date.now()}.png`;
+    a.click();
+  }
+
   public applyQualityPreset(): void {
     const preset = QualityManager.preset;
-    const dpr = preset.pixelRatio === 0 ? window.devicePixelRatio : Math.min(window.devicePixelRatio, preset.pixelRatio);
+    const dpr =
+      preset.pixelRatio === 0
+        ? window.devicePixelRatio
+        : Math.min(window.devicePixelRatio, preset.pixelRatio);
     this.renderer.setPixelRatio(dpr);
 
     const shadowsOn = preset.shadowMapSize > 0;
@@ -195,8 +217,19 @@ export class Engine {
     GlobalShaderUniforms.uRimColor.value.setHex(ambientSky);
   }
 
+  public applyLobbySeasonTint(season: SeasonId): void {
+    if (season === 'autumn') {
+      this.dirLight.color.setHex(0xfdba74);
+    } else if (season === 'winter') {
+      this.dirLight.color.setHex(0xe0f2fe);
+    } else if (season === 'spring') {
+      this.dirLight.color.setHex(0xfef9c3);
+    } else {
+      this.dirLight.color.setHex(0xfff4d6);
+    }
+  }
+
   public updateDayNight(waveProgress: number, isBossWave: boolean, isNightFog = false): void {
-    // §8.6 Day-night tint: morning -> noon -> sunset; final boss wave is purple dusk
     const p = THREE.MathUtils.clamp(waveProgress, 0, 1);
     const angle = 0.4 + p * 0.9;
     this.dirLight.position.set(Math.cos(angle) * 24, 24 - p * 8, Math.sin(angle) * 20);
@@ -247,7 +280,6 @@ export class Engine {
     this.composer.render();
     const renderMs = performance.now() - t0;
 
-    // Frame timing & Auto-Scaler (§8.9)
     this.fpsAccum += uiDt;
     this.fpsSamples++;
     if (this.fpsAccum >= 0.4) {

@@ -10,9 +10,20 @@ import type { EnemyEntity } from './EnemyEntity';
 import type { TowerEntity } from './TowerEntity';
 import type { SynergySystem } from './SynergySystem';
 import type { ElementTag } from '../data/UnitRegistry';
+import type { HitReactionType } from '../rendering/Animator';
 
 export interface ProjectileLaunchParams {
-  kind: 'tomato' | 'spine' | 'pineapple' | 'boulder' | 'solar_orb' | 'frost_orb' | 'arcane_orb' | 'mini_bomb' | 'spore_bomb';
+  kind:
+    | 'tomato'
+    | 'spine'
+    | 'pineapple'
+    | 'boulder'
+    | 'solar_orb'
+    | 'frost_orb'
+    | 'arcane_orb'
+    | 'mini_bomb'
+    | 'spore_bomb'
+    | 'bamboo_arrow';
   startX: number;
   startY: number;
   startZ: number;
@@ -33,6 +44,7 @@ export interface ProjectileLaunchParams {
   weatherFireMult: number;
   weatherIceMult: number;
   weatherArcaneBonus: number;
+  pierceLeft?: number;
 }
 
 interface ActiveProjectile {
@@ -53,9 +65,10 @@ interface ActiveProjectile {
   destZ: number;
   progress: number;
   duration: number;
+  hitIds: Set<string>;
 }
 
-const POOL_SIZE = 120;
+const POOL_SIZE = 140;
 
 export class ProjectileSystem {
   private pool: ActiveProjectile[] = [];
@@ -88,7 +101,6 @@ export class ProjectileSystem {
       mesh.visible = false;
       scene.add(mesh);
 
-      // 10-segment Ribbon Trail ring buffer (§8.2)
       const trailPositions = new Float32Array(10 * 3);
       const tGeo = new THREE.BufferGeometry();
       tGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
@@ -116,6 +128,7 @@ export class ProjectileSystem {
         destZ: 0,
         progress: 0,
         duration: 0.3,
+        hitIds: new Set<string>(),
       });
     }
   }
@@ -125,6 +138,7 @@ export class ProjectileSystem {
       if (!slot.active) {
         slot.active = true;
         slot.params = p;
+        slot.hitIds.clear();
         slot.startX = p.startX;
         slot.startY = p.startY;
         slot.startZ = p.startZ;
@@ -134,9 +148,20 @@ export class ProjectileSystem {
 
         const tx = p.targetEnemy ? p.targetEnemy.position.x : p.targetTower ? p.targetTower.position.x : p.fallbackX;
         const tz = p.targetEnemy ? p.targetEnemy.position.z : p.targetTower ? p.targetTower.position.z : p.fallbackZ;
-        slot.destX = tx + p.weatherDrift * (Math.random() - 0.5) * 0.6;
-        slot.destY = 0.4;
-        slot.destZ = tz + p.weatherDrift * (Math.random() - 0.5) * 0.6;
+
+        // Bamboo arrow flies past target along ray so it pierces multiple pests!
+        if (p.kind === 'bamboo_arrow') {
+          const dx = tx - p.startX;
+          const dz = tz - p.startZ;
+          const len = Math.max(0.1, Math.hypot(dx, dz));
+          const flyDist = Math.max(len + 3.5, 14);
+          slot.destX = p.startX + (dx / len) * flyDist;
+          slot.destZ = p.startZ + (dz / len) * flyDist;
+        } else {
+          slot.destX = tx + p.weatherDrift * (Math.random() - 0.5) * 0.6;
+          slot.destZ = tz + p.weatherDrift * (Math.random() - 0.5) * 0.6;
+        }
+        slot.destY = 0.45;
 
         const dist = Math.max(0.5, Math.hypot(slot.destX - p.startX, slot.destZ - p.startZ));
         slot.duration = Math.max(0.08, dist / Math.max(2, p.speed));
@@ -147,6 +172,9 @@ export class ProjectileSystem {
         if (p.kind === 'spine') {
           color = p.isLv5 ? 0x4ade80 : 0xfef08a;
           scale = 0.65;
+        } else if (p.kind === 'bamboo_arrow') {
+          color = 0xbef264;
+          scale = 0.8;
         } else if (p.kind === 'pineapple' || p.kind === 'mini_bomb') {
           color = 0xfacc15;
           scale = p.kind === 'mini_bomb' ? 0.85 : 1.5;
@@ -196,8 +224,14 @@ export class ProjectileSystem {
       const p = slot.params;
       slot.progress += dt / slot.duration;
 
-      // Homing tracking if target enemy still alive
-      if (p.targetEnemy && !p.targetEnemy.isDead && !p.targetEnemy.reachedGoal && p.kind !== 'boulder' && p.kind !== 'pineapple') {
+      if (
+        p.targetEnemy &&
+        !p.targetEnemy.isDead &&
+        !p.targetEnemy.reachedGoal &&
+        p.kind !== 'boulder' &&
+        p.kind !== 'pineapple' &&
+        p.kind !== 'bamboo_arrow'
+      ) {
         slot.destX = p.targetEnemy.position.x;
         slot.destZ = p.targetEnemy.position.z;
       }
@@ -217,12 +251,10 @@ export class ProjectileSystem {
       slot.z = nz;
       slot.mesh.position.set(nx, ny, nz);
 
-      // §8.3.2 Squash & Stretch along velocity: scaleZ = clamp(1 + |v| * 0.04, 1, 2.0)
       const stretchZ = Math.min(2.0, 1 + speedMag * 0.04);
       slot.mesh.lookAt(nx + vx, ny + vy, nz + vz);
-      slot.mesh.scale.z = stretchZ * (p.kind === 'spine' ? 1.3 : 1.0);
+      slot.mesh.scale.z = stretchZ * (p.kind === 'spine' || p.kind === 'bamboo_arrow' ? 1.45 : 1.0);
 
-      // Update ring-buffer trail
       const tp = slot.trailPositions;
       for (let i = 9; i > 0; i--) {
         tp[i * 3] = tp[(i - 1) * 3];
@@ -238,11 +270,55 @@ export class ProjectileSystem {
         waterSplashAgeReset = true;
       }
 
+      // Piercing Bamboo Arrow checks mid-flight hits (§7)
+      if (p.kind === 'bamboo_arrow' && (p.pierceLeft ?? 0) > 0) {
+        for (const e of enemies) {
+          if (e.isDead || e.reachedGoal || e.isBurrowed || slot.hitIds.has(e.id)) continue;
+          if (Math.hypot(e.position.x - nx, e.position.z - nz) <= 1.0) {
+            slot.hitIds.add(e.id);
+            p.pierceLeft = (p.pierceLeft ?? 1) - 1;
+            this.vfx.spawnRecipe('bamboo_pierce', e.position.x, 0.7, e.position.z);
+            const res = e.applyDamage(p.damage, {
+              isCrit: p.isCrit,
+              reaction: 'physical',
+              sourceTowerId: p.sourceTower?.id ?? null,
+            });
+            this.onDamageCredit?.(p.sourceTower, res.hpDamage, e);
+            this.popups.spawnDamage(e.position.x, e.position.y, e.position.z, res.hpDamage, p.isCrit ? 'crit' : 'normal', e.id);
+            if (p.pierceLeft <= 0) {
+              slot.progress = 1;
+              break;
+            }
+          }
+        }
+      }
+
       if (slot.progress >= 1) {
         slot.active = false;
         slot.mesh.visible = false;
         slot.trailLine.visible = false;
-        this.resolveImpact(slot, enemies);
+        if (p.kind === 'bamboo_arrow') {
+          if (p.isLv5) {
+            // Lv.5 splits into 3 arrows at end of range (§7.1)
+            for (let aIdx = -1; aIdx <= 1; aIdx++) {
+              const ang = Math.atan2(slot.destZ - slot.startZ, slot.destX - slot.startX) + aIdx * 0.45;
+              this.launch({
+                ...p,
+                startX: slot.destX,
+                startY: 0.6,
+                startZ: slot.destZ,
+                targetEnemy: null,
+                fallbackX: slot.destX + Math.cos(ang) * 5,
+                fallbackZ: slot.destZ + Math.sin(ang) * 5,
+                damage: Math.round(p.damage * 0.55),
+                isLv5: false,
+                pierceLeft: 2,
+              });
+            }
+          }
+        } else {
+          this.resolveImpact(slot, enemies);
+        }
       }
     }
 
@@ -273,7 +349,6 @@ export class ProjectileSystem {
       return;
     }
 
-    // Impact VFX & Decals
     if (p.kind === 'tomato') {
       this.vfx.spawnRecipe('tomato_juicy_burst', ix, 0.4, iz);
       this.decals.spawn('tomato', ix, iz, 1.2, 4.0);
@@ -288,7 +363,6 @@ export class ProjectileSystem {
       SynthAudio.play('explosion');
 
       if (p.kind === 'pineapple' && p.isLv5) {
-        // Shrapnel splits into 6 mini-bombs (§6.1)
         for (let i = 0; i < 6; i++) {
           const a = (i / 6) * Math.PI * 2;
           this.launch({
@@ -327,9 +401,9 @@ export class ProjectileSystem {
       this.decals.spawn('frost', ix, iz, 1.8, 6.0);
     }
 
-    // Apply damage
     const isGroundAoe = p.splashRadius > 0;
     let ricochetTarget: EnemyEntity | null = null;
+    const comboMult = 1 + (p.sourceTower?.comboDmgBonus ?? 0);
 
     for (const enemy of enemies) {
       if (enemy.isDead || enemy.reachedGoal) continue;
@@ -342,35 +416,49 @@ export class ProjectileSystem {
 
       let elem: 'normal' | 'burn' | 'freeze' | 'arcane' = 'normal';
       let synElem: ElementTag = p.isExplosive ? 'heavy' : 'physical';
+      let reaction: HitReactionType = 'physical';
 
       if (p.kind === 'spine') {
         enemy.bleedTimer = Math.max(enemy.bleedTimer, 3.0);
         enemy.bleedDps = Math.max(enemy.bleedDps, p.damage * 0.2);
+        enemy.refreshStatusPulse('bleed');
         synElem = 'bleed';
       } else if (p.kind === 'solar_orb' || (p.kind === 'tomato' && p.isLv5)) {
         enemy.burnTimer = Math.max(enemy.burnTimer, 4.0);
         enemy.burnDps = Math.max(enemy.burnDps, p.damage * 0.35 * p.weatherFireMult);
+        enemy.refreshStatusPulse('burn');
         elem = 'burn';
         synElem = 'burn';
+        reaction = 'burn';
       } else if (p.kind === 'frost_orb') {
         enemy.chillTimer = Math.max(enemy.chillTimer, 3.5 * p.weatherIceMult);
+        enemy.refreshStatusPulse('chill');
         elem = 'freeze';
         synElem = 'chill';
+        reaction = 'freeze';
       } else if (p.kind === 'arcane_orb') {
         elem = 'arcane';
         synElem = 'arcane';
+        reaction = 'lightning';
       }
 
-      const syn = this.synergy.tryTrigger(enemy, synElem, p.damage);
+      const syn = this.synergy.tryTrigger(enemy, synElem, p.damage, comboMult, enemies);
       const totalDmg = p.damage + (syn?.bonusDamage ?? 0);
 
       const res = enemy.applyDamage(totalDmg, {
         isExplosive: p.isExplosive,
+        isCrit: p.isCrit,
         element: elem,
+        reaction,
         sourceTowerId: p.sourceTower?.id ?? null,
       });
 
       this.onDamageCredit?.(p.sourceTower, res.hpDamage, enemy);
+
+      if (res.wasOverkill) {
+        TimeScale.triggerHitStop('overkill');
+        this.vfx.spawnRecipe('overkill_burst', enemy.position.x, 0.7, enemy.position.z, enemy.def.primaryColor);
+      }
 
       if (res.shieldShattered) {
         TimeScale.triggerHitStop('shield_shatter');
@@ -392,7 +480,6 @@ export class ProjectileSystem {
         );
       }
 
-      // Chrono-Bloom Arcane Chain Lightning
       if (p.kind === 'arcane_orb') {
         let chains = 3 + p.weatherArcaneBonus + (syn?.extraChainCount ?? 0);
         let prev = enemy;
@@ -400,16 +487,10 @@ export class ProjectileSystem {
           if (chains <= 0) break;
           if (other === enemy || other.isDead || other.reachedGoal || other.isBurrowed) continue;
           if (Math.hypot(other.position.x - prev.position.x, other.position.z - prev.position.z) <= 6.5) {
-            this.vfx.spawnChainLightning(
-              prev.position.x,
-              0.7,
-              prev.position.z,
-              other.position.x,
-              0.7,
-              other.position.z
-            );
+            this.vfx.spawnChainLightning(prev.position.x, 0.7, prev.position.z, other.position.x, 0.7, other.position.z);
             const cRes = other.applyDamage(Math.round(p.damage * 0.65), {
               element: 'arcane',
+              reaction: 'lightning',
               sourceTowerId: p.sourceTower?.id ?? null,
             });
             this.onDamageCredit?.(p.sourceTower, cRes.hpDamage, other);

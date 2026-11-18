@@ -261,7 +261,7 @@ export class SummonModal {
 
     this.revealGroup.clear();
     const top = res[res.length - 1];
-    const unitRig = MeshFactory.buildTowerRig(top.unit.id, 0, top.rarity, top.trait, 'default');
+    const unitRig = MeshFactory.buildTowerRig(top.unit.id, 0, top.rarity, top.trait, 'garden_loam');
     unitRig.root.scale.setScalar(1.25);
     this.revealGroup.add(unitRig.root);
     this.revealGroup.visible = false;

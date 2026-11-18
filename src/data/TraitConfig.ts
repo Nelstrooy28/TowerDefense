@@ -67,7 +67,7 @@ export const TRAITS: Record<TraitId, TraitDef> = {
     modelScale: 1.0,
     color: '#38bdf8',
     description: '−12% Attack Cooldown',
-    visualIndicator: 'Wind swirl ring around pot base',
+    visualIndicator: 'Wind swirl ring around soil mound',
   },
   Thorny: {
     id: 'Thorny',
@@ -83,7 +83,7 @@ export const TRAITS: Record<TraitId, TraitDef> = {
     modelScale: 1.0,
     color: '#f43f5e',
     description: '+15% Damage',
-    visualIndicator: 'Crimson thorn rim on pot',
+    visualIndicator: 'Crimson thorn rim on soil mound',
   },
   Bountiful: {
     id: 'Bountiful',

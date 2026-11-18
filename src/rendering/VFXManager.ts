@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { QualityManager } from '../core/QualityManager';
 import { VFX_RECIPES, type ParticleShape, type VFXRecipeId } from '../data/VFXRecipes';
 import { createShockwaveMaterial } from './ShaderLib';
+import { ProceduralTextures } from './ProceduralTextures';
 import { easeOutCubic } from './Easing';
+import type { EnemyEntity } from '../simulation/EnemyEntity';
 
 interface ParticleEntry {
   active: boolean;
@@ -121,6 +123,13 @@ export class VFXManager {
   // World-to-HUD Flying Coins (§8.7)
   private coinPool: CoinFlyItem[] = [];
   private coinLayer: HTMLElement;
+
+  // 3D Billboard Status Icons (Fix F2 §2: 1 draw call InstancedMesh)
+  private statusIconMesh: THREE.InstancedMesh;
+  private statusTileArray: Float32Array;
+  private statusTileAttr: THREE.InstancedBufferAttribute;
+  private readonly _statusTiles = new Int8Array(4);
+  private readonly _statusScales = new Float32Array(4);
 
   private readonly _dummy = new THREE.Object3D();
   private readonly _color = new THREE.Color();
@@ -374,6 +383,48 @@ export class VFXManager {
         p2y: 0,
       });
     }
+
+    // 3D Billboard Status Icons Pool (Fix F2: 256 max icons, 1 draw call)
+    const maxStatusIcons = 256;
+    const statusGeo = new THREE.PlaneGeometry(0.42, 0.42);
+    this.statusTileArray = new Float32Array(maxStatusIcons);
+    this.statusTileAttr = new THREE.InstancedBufferAttribute(this.statusTileArray, 1);
+    statusGeo.setAttribute('aTile', this.statusTileAttr);
+    const statusSheet = ProceduralTextures.getStatusIconSpriteSheet();
+    const statusMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uSheet: { value: statusSheet },
+      },
+      vertexShader: `
+        attribute float aTile;
+        varying vec2 vUv;
+        varying float vTile;
+        void main() {
+          vUv = uv;
+          vTile = aTile;
+          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D uSheet;
+        varying vec2 vUv;
+        varying float vTile;
+        void main() {
+          vec2 tileUv = vec2((vUv.x + floor(vTile + 0.5)) / 8.0, vUv.y);
+          vec4 tex = texture2D(uSheet, tileUv);
+          if (tex.a < 0.08) discard;
+          gl_FragColor = tex;
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+    });
+    this.statusIconMesh = new THREE.InstancedMesh(statusGeo, statusMat, maxStatusIcons);
+    this.statusIconMesh.count = 0;
+    this.statusIconMesh.frustumCulled = false;
+    this.statusIconMesh.renderOrder = 25;
+    this.scene.add(this.statusIconMesh);
   }
 
   public spawnRecipe(
@@ -793,6 +844,60 @@ export class VFXManager {
     }
   }
 
+  /** Fix F2 (§2): Update 3D billboard sprite-sheet status icons above damaged enemies (zero allocations). */
+  public syncStatusIcons(enemies: readonly EnemyEntity[], camera: THREE.Camera): void {
+    const maxInstances = this.statusTileArray.length;
+    let instanceIdx = 0;
+
+    for (let i = 0; i < enemies.length && instanceIdx < maxInstances; i++) {
+      const e = enemies[i];
+      if (e.isDead || e.hp <= 0 || e.isBurrowed) continue;
+
+      let count = 0;
+      const pushStatus = (tile: number, key: string) => {
+        if (count >= 4) return;
+        this._statusTiles[count] = tile;
+        const pulse = e.statusPulseTimers[key] ?? 0;
+        this._statusScales[count] =
+          pulse > 0 ? 1.0 + 0.25 * Math.sin(((0.18 - pulse) / 0.18) * Math.PI) : 1.0;
+        count++;
+      };
+
+      if (e.burnTimer > 0) pushStatus(0, 'burn');
+      if (e.freezeTimer > 0) pushStatus(2, 'freeze');
+      else if (e.chillTimer > 0) pushStatus(1, 'chill');
+      if (e.bleedTimer > 0) pushStatus(3, 'bleed');
+      if (e.staggerTimer > 0) pushStatus(4, 'stun');
+      if (e.wetTimer > 0) pushStatus(5, 'wet');
+      if (e.poisonTimer > 0) pushStatus(6, 'poison');
+      if (e.armor > 0 && count < 4) pushStatus(7, 'shield');
+
+      if (count === 0) continue;
+
+      const spacing = 0.44;
+      const startOffset = -((count - 1) * spacing) * 0.5;
+      const baseY = e.position.y + 1.45 * e.def.scale + 0.45;
+
+      for (let s = 0; s < count && instanceIdx < maxInstances; s++) {
+        const rightOffset = startOffset + s * spacing;
+        this._dummy.position.set(e.position.x, baseY, e.position.z);
+        this._dummy.quaternion.copy(camera.quaternion);
+        this._dummy.translateX(rightOffset);
+        this._dummy.scale.setScalar(this._statusScales[s]);
+        this._dummy.updateMatrix();
+        this.statusIconMesh.setMatrixAt(instanceIdx, this._dummy.matrix);
+        this.statusTileArray[instanceIdx] = this._statusTiles[s];
+        instanceIdx++;
+      }
+    }
+
+    this.statusIconMesh.count = instanceIdx;
+    if (instanceIdx > 0) {
+      this.statusIconMesh.instanceMatrix.needsUpdate = true;
+      this.statusTileAttr.needsUpdate = true;
+    }
+  }
+
   public clearAll(): void {
     for (const shape of ['sphere', 'diamond', 'leaf', 'spark'] as ParticleShape[]) {
       for (const p of this.particles[shape]) p.active = false;
@@ -818,6 +923,7 @@ export class VFXManager {
     this.tsunamiMesh.visible = false;
     this.tsunamiActive = false;
     this.setRainActive(false);
+    this.statusIconMesh.count = 0;
     this.activeParticleCount = 0;
   }
 }

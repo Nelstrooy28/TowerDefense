@@ -24,9 +24,12 @@ export class CombatHUD {
   private cashEl!: HTMLElement;
   private hpEl!: HTMLElement;
   private waveEl!: HTMLElement;
+  private timelineEl!: HTMLDivElement;
+  private killFeedEl!: HTMLDivElement;
   private skipBtn!: HTMLButtonElement;
   private autoSkipBtn!: HTMLButtonElement;
   private speedBtn!: HTMLButtonElement;
+  private pauseBtn!: HTMLButtonElement;
   private muteBtn!: HTMLButtonElement;
   private dmgToggleBtn!: HTMLButtonElement;
   private hotbarRow!: HTMLDivElement;
@@ -61,14 +64,18 @@ export class CombatHUD {
           <button class="btn btn-gold btn-sm hidden" id="hud-skip-btn">Skip Wave</button>
         </div>
         <div class="hud-group">
+          <button class="btn btn-slate btn-sm" id="hud-pause-btn" title="Shortcut: P">⏸ Pause</button>
           <button class="btn btn-slate btn-sm" id="hud-speed-btn">Speed: 1x</button>
           <button class="btn btn-slate btn-sm" id="hud-autoskip-btn">Auto-Skip: OFF</button>
-          <button class="btn btn-slate btn-sm" id="hud-dmg-btn">DPS Meter</button>
+          <button class="btn btn-slate btn-sm" id="hud-dmg-btn">DPS</button>
+          <button class="btn btn-slate btn-sm" id="hud-photo-btn" title="Save Screenshot">📷</button>
           <button class="btn btn-slate btn-sm" id="hud-mute-btn">🔊</button>
           <button class="btn btn-slate btn-sm" id="hud-settings-btn">⚙️</button>
           <button class="btn btn-rose btn-sm" id="hud-lobby-btn">Lobby</button>
         </div>
       </div>
+
+      <div class="wave-timeline-strip gloss-panel" id="hud-wave-timeline"></div>
 
       <div class="boss-bar-panel gloss-panel hidden" id="hud-boss-bar">
         <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:800;">
@@ -79,9 +86,13 @@ export class CombatHUD {
           <div class="boss-bar-hp" id="boss-hp-fill" style="width:100%"></div>
           <div class="boss-bar-shield" id="boss-shield-fill" style="width:0%"></div>
         </div>
+        <div class="boss-stagger-track" title="Stagger Meter">
+          <div class="boss-stagger-fill" id="boss-stagger-fill" style="width:0%"></div>
+        </div>
       </div>
 
       <div class="damage-meter-panel gloss-panel hidden" id="hud-dmg-meter"></div>
+      <div class="kill-feed" id="hud-kill-feed"></div>
 
       <div class="combat-bottom">
         <div class="ability-bar" id="hud-ability-bar"></div>
@@ -96,9 +107,12 @@ export class CombatHUD {
     this.cashEl = this.root.querySelector('#hud-cash-text')!;
     this.hpEl = this.root.querySelector('#hud-hp-text')!;
     this.waveEl = this.root.querySelector('#hud-wave-text')!;
+    this.timelineEl = this.root.querySelector('#hud-wave-timeline') as HTMLDivElement;
+    this.killFeedEl = this.root.querySelector('#hud-kill-feed') as HTMLDivElement;
     this.skipBtn = this.root.querySelector('#hud-skip-btn') as HTMLButtonElement;
     this.autoSkipBtn = this.root.querySelector('#hud-autoskip-btn') as HTMLButtonElement;
     this.speedBtn = this.root.querySelector('#hud-speed-btn') as HTMLButtonElement;
+    this.pauseBtn = this.root.querySelector('#hud-pause-btn') as HTMLButtonElement;
     this.muteBtn = this.root.querySelector('#hud-mute-btn') as HTMLButtonElement;
     this.dmgToggleBtn = this.root.querySelector('#hud-dmg-btn') as HTMLButtonElement;
     this.hotbarRow = this.root.querySelector('#hud-hotbar-row') as HTMLDivElement;
@@ -109,6 +123,11 @@ export class CombatHUD {
     this.skipBtn.addEventListener('click', () => {
       SynthAudio.play('click');
       this.match.skipWave();
+    });
+
+    this.pauseBtn.addEventListener('click', () => {
+      TimeScale.togglePause();
+      SynthAudio.play('click');
     });
 
     this.speedBtn.addEventListener('click', () => {
@@ -132,6 +151,11 @@ export class CombatHUD {
       SynthAudio.play('click');
     });
 
+    this.root.querySelector('#hud-photo-btn')!.addEventListener('click', () => {
+      this.match.engine.captureScreenshot();
+      EventBus.emit('toast:show', { title: '📷 Screenshot Saved!', color: '#4ade80' });
+    });
+
     this.muteBtn.addEventListener('click', () => {
       QualityManager.applySettings({ muted: !QualityManager.settings.muted });
       SynthAudio.syncVolume();
@@ -140,6 +164,14 @@ export class CombatHUD {
 
     this.root.querySelector('#hud-settings-btn')!.addEventListener('click', onOpenSettings);
     this.root.querySelector('#hud-lobby-btn')!.addEventListener('click', onExitToLobby);
+
+    EventBus.on('match:paused_changed', ({ paused }) => {
+      this.pauseBtn.textContent = paused ? '▶ Resume' : '⏸ Pause';
+      this.pauseBtn.classList.toggle('btn-gold', paused);
+      this.pauseBtn.classList.toggle('btn-slate', !paused);
+    });
+
+    EventBus.on('match:killfeed', ({ text, color }) => this.pushKillFeed(text, color));
 
     EventBus.on('match:cash_changed', ({ delta }) => {
       const pill = this.root.querySelector('#hud-cash-pill')!;
@@ -185,12 +217,25 @@ export class CombatHUD {
     EventBus.on('placement:slot_selected', () => this.refreshHotbar());
   }
 
+  private pushKillFeed(text: string, color = '#f8fafc'): void {
+    const item = document.createElement('div');
+    item.className = 'kill-feed-item';
+    item.style.color = color;
+    item.textContent = text;
+    this.killFeedEl.appendChild(item);
+    while (this.killFeedEl.children.length > 4) {
+      this.killFeedEl.firstElementChild?.remove();
+    }
+    setTimeout(() => item.remove(), 3000);
+  }
+
   public show(visible: boolean): void {
     this.root.classList.toggle('hidden', !visible);
     this.wavePreview.show(visible);
     if (visible) {
       this.displayedCash = this.match.cash;
       this.bossBar.classList.add('hidden');
+      this.killFeedEl.innerHTML = '';
       this.refreshAll();
     }
   }
@@ -203,9 +248,28 @@ export class CombatHUD {
       : `Wave ${this.match.currentWave} / ${this.match.totalWaves}`;
     this.muteBtn.textContent = QualityManager.settings.muted ? '🔇' : '🔊';
     this.speedBtn.textContent = `Speed: ${TimeScale.speed}x`;
+    this.pauseBtn.textContent = TimeScale.paused ? '▶ Resume' : '⏸ Pause';
+    this.refreshWaveTimeline();
     this.refreshHotbar();
     this.wavePreview.update();
     this.inspector.render();
+  }
+
+  private refreshWaveTimeline(): void {
+    const items: string[] = [];
+    for (let offset = 1; offset <= 5; offset++) {
+      const w = this.match.currentWave + offset;
+      if (!this.match.isEndless && w > this.match.totalWaves) break;
+      const isBoss =
+        this.match.gameMode === 'boss_rush'
+          ? w % 2 === 0
+          : !this.match.isEndless && w === this.match.totalWaves;
+      const isSnail = w % 10 === 0 && !isBoss;
+      const icon = isBoss ? '💀' : isSnail ? '🐌' : w >= 12 ? '⚡' : '🐜';
+      items.push(`<span style="color:${isBoss ? '#f43f5e' : '#e2e8f0'};">W${w} ${icon}</span>`);
+    }
+    this.timelineEl.innerHTML =
+      items.length > 0 ? `<span>Upcoming:</span> ${items.join(' • ')}` : `<span>Final Wave!</span>`;
   }
 
   public refreshHotbar(): void {
@@ -225,9 +289,9 @@ export class CombatHUD {
         const cantAfford = this.match.cash < unit.cost || placed >= unit.cap;
 
         return `
-          <button class="hotbar-card ${isActive ? 'active' : ''} ${cantAfford ? 'unaffordable' : ''}" data-slot="${idx}" style="border-color:${hex};">
+          <button class="hotbar-card ${isActive ? 'active' : ''} ${cantAfford ? 'unaffordable' : 'affordable-glow'}" data-slot="${idx}" style="border-color:${hex};">
             <span class="hotbar-hotkey">${idx + 1}</span>
-            <img src="${portrait}" alt="${unit.name}" style="width:58px;height:58px;border-radius:8px;border:2px solid ${hex};" />
+            <img src="${portrait}" alt="${unit.name}" style="width:56px;height:56px;border-radius:8px;border:2px solid ${hex};" />
             <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">${cb} ${unit.name.split(' ')[0]}</div>
             <div style="font-size:14px;display:flex;justify-content:space-between;width:100%;">
               <span class="card-cost">$${unit.cost}</span>
@@ -246,7 +310,6 @@ export class CombatHUD {
         this.input.selectSlot(this.input.activeSlotIndex === slot ? null : slot);
         SynthAudio.play('click');
       });
-      // §8.7 3D mouse hover tilt (+-6 deg)
       el.addEventListener('mousemove', (ev) => {
         if (QualityManager.settings.reducedMotion) return;
         const r = el.getBoundingClientRect();
@@ -263,7 +326,6 @@ export class CombatHUD {
   public updateFrame(dt: number): void {
     if (!this.match.inMatch) return;
 
-    // Odometer Cash Counter (§8.7)
     if (Math.abs(this.displayedCash - this.match.cash) > 0.5) {
       this.displayedCash += (this.match.cash - this.displayedCash) * Math.min(1, dt * 16);
       this.cashEl.textContent = `${Math.round(this.displayedCash).toLocaleString()}`;
@@ -272,7 +334,6 @@ export class CombatHUD {
       this.cashEl.textContent = `${this.match.cash.toLocaleString()}`;
     }
 
-    // Skip Wave Prompt
     if (!this.match.waveActive) {
       this.skipBtn.classList.remove('hidden');
       this.skipBtn.textContent = `Start Wave ${this.match.currentWave + 1} (${Math.ceil(this.match.waveCountdown)}s)`;
@@ -283,18 +344,21 @@ export class CombatHUD {
       this.skipBtn.classList.add('hidden');
     }
 
-    // Boss HP Bar
     const boss = this.match.enemies.find((e) => !e.isDead && e.def.isBoss);
     if (boss) {
       this.bossBar.classList.remove('hidden');
       const hpPct = Math.max(0, (boss.hp / Math.max(1, this.activeBossMaxHp)) * 100);
       const shPct = this.activeBossMaxShield > 0 ? Math.max(0, (boss.armor / this.activeBossMaxShield) * 100) : 0;
+      const stagPct = boss.staggerMax > 0 ? Math.min(100, (boss.staggerValue / boss.staggerMax) * 100) : 0;
       (this.root.querySelector('#boss-hp-fill') as HTMLElement).style.width = `${hpPct}%`;
       (this.root.querySelector('#boss-shield-fill') as HTMLElement).style.width = `${shPct}%`;
-      this.root.querySelector('#boss-hp-text')!.textContent = `${Math.round(boss.hp).toLocaleString()} / ${this.activeBossMaxHp.toLocaleString()}`;
+      (this.root.querySelector('#boss-stagger-fill') as HTMLElement).style.width = `${stagPct}%`;
+      this.root.querySelector('#boss-hp-text')!.textContent =
+        boss.staggerTimer > 0
+          ? `STAGGERED (${boss.staggerTimer.toFixed(1)}s)`
+          : `${Math.round(boss.hp).toLocaleString()} / ${this.activeBossMaxHp.toLocaleString()}`;
     }
 
-    // Ability Bar (Lv.4+ units)
     const abilityTowers = this.match.towers.filter((t) => t.def.ability && t.level >= 4);
     const keys = ['Q', 'E', 'R'];
     this.abilityBar.innerHTML = abilityTowers
@@ -320,7 +384,6 @@ export class CombatHUD {
       });
     });
 
-    // Damage Meter (§9.7)
     if (QualityManager.settings.damageMeter) {
       const sorted = [...this.match.towers].sort((a, b) => b.totalDamageDealt - a.totalDamageDealt).slice(0, 6);
       const topDmg = Math.max(1, sorted[0]?.totalDamageDealt ?? 1);
