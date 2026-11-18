@@ -7,15 +7,18 @@ import { EventBus } from '../core/EventBus';
 import { getUnitById } from '../data/UnitRegistry';
 import { RARITIES } from '../data/RarityConfig';
 import { TRAITS } from '../data/TraitConfig';
+import { MODIFIER_FAMILIES, VARIANTS } from '../data/BalanceConfig';
 import { ProceduralTextures } from '../rendering/ProceduralTextures';
 import { SynthAudio } from '../audio/SynthAudio';
 import { WavePreview } from './WavePreview';
 import { InspectorPanel } from './InspectorPanel';
+import { GardenManagerPanel } from './GardenManagerPanel';
 
 export class CombatHUD {
   public root: HTMLDivElement;
   public wavePreview: WavePreview;
   public inspector: InspectorPanel;
+  public gardenManager: GardenManagerPanel;
 
   private match: MatchController;
   private input: InputManager;
@@ -25,6 +28,10 @@ export class CombatHUD {
   private hpEl!: HTMLElement;
   private waveEl!: HTMLElement;
   private timelineEl!: HTMLDivElement;
+  private modifiersBar!: HTMLDivElement;
+  private modeBannerEl!: HTMLDivElement;
+  private sandboxBar!: HTMLDivElement;
+  private rivalBar!: HTMLDivElement;
   private killFeedEl!: HTMLDivElement;
   private skipBtn!: HTMLButtonElement;
   private autoSkipBtn!: HTMLButtonElement;
@@ -44,7 +51,7 @@ export class CombatHUD {
     parent: HTMLElement,
     match: MatchController,
     input: InputManager,
-    onOpenSettings: () => void,
+    onOpenPause: () => void,
     onExitToLobby: () => void
   ) {
     this.match = match;
@@ -64,23 +71,28 @@ export class CombatHUD {
           <button class="btn btn-gold btn-sm hidden" id="hud-skip-btn">Skip Wave</button>
         </div>
         <div class="hud-group">
+          <button class="btn btn-green btn-sm" id="hud-manager-btn" title="Shortcut: M">🌿 Manager</button>
           <button class="btn btn-slate btn-sm" id="hud-pause-btn" title="Shortcut: P">⏸ Pause</button>
           <button class="btn btn-slate btn-sm" id="hud-speed-btn">Speed: 1x</button>
           <button class="btn btn-slate btn-sm" id="hud-autoskip-btn">Auto-Skip: OFF</button>
           <button class="btn btn-slate btn-sm" id="hud-dmg-btn">DPS</button>
           <button class="btn btn-slate btn-sm" id="hud-photo-btn" title="Save Screenshot">📷</button>
           <button class="btn btn-slate btn-sm" id="hud-mute-btn">🔊</button>
-          <button class="btn btn-slate btn-sm" id="hud-settings-btn">⚙️</button>
-          <button class="btn btn-rose btn-sm" id="hud-lobby-btn">Lobby</button>
+          <button class="btn btn-slate btn-sm" id="hud-settings-btn" title="Pause / Menu (Esc)">☰ Menu</button>
+          <button class="btn btn-rose btn-sm" id="hud-lobby-btn">Hub</button>
         </div>
       </div>
 
       <div class="wave-timeline-strip gloss-panel" id="hud-wave-timeline"></div>
+      <div class="hud-modifiers-bar hidden" id="hud-modifiers-bar"></div>
+      <div class="hud-mode-tip gloss-panel hidden" id="hud-mode-banner"></div>
+      <div class="hud-sandbox-bar gloss-panel hidden" id="hud-sandbox-bar"></div>
+      <div class="hud-rival-bar gloss-panel hidden" id="hud-rival-bar"></div>
 
       <div class="boss-bar-panel gloss-panel hidden" id="hud-boss-bar">
         <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:800;">
           <span id="boss-name-text">BLIGHTED TREANT OVERLORD</span>
-          <span id="boss-hp-text">65,000 / 65,000</span>
+          <span id="boss-hp-text">24,000 / 24,000</span>
         </div>
         <div class="boss-bar-track">
           <div class="boss-bar-hp" id="boss-hp-fill" style="width:100%"></div>
@@ -103,11 +115,16 @@ export class CombatHUD {
 
     this.wavePreview = new WavePreview(this.root, match);
     this.inspector = new InspectorPanel(this.root, match, input);
+    this.gardenManager = new GardenManagerPanel(this.root, match, input);
 
     this.cashEl = this.root.querySelector('#hud-cash-text')!;
     this.hpEl = this.root.querySelector('#hud-hp-text')!;
     this.waveEl = this.root.querySelector('#hud-wave-text')!;
     this.timelineEl = this.root.querySelector('#hud-wave-timeline') as HTMLDivElement;
+    this.modifiersBar = this.root.querySelector('#hud-modifiers-bar') as HTMLDivElement;
+    this.modeBannerEl = this.root.querySelector('#hud-mode-banner') as HTMLDivElement;
+    this.sandboxBar = this.root.querySelector('#hud-sandbox-bar') as HTMLDivElement;
+    this.rivalBar = this.root.querySelector('#hud-rival-bar') as HTMLDivElement;
     this.killFeedEl = this.root.querySelector('#hud-kill-feed') as HTMLDivElement;
     this.skipBtn = this.root.querySelector('#hud-skip-btn') as HTMLButtonElement;
     this.autoSkipBtn = this.root.querySelector('#hud-autoskip-btn') as HTMLButtonElement;
@@ -119,6 +136,10 @@ export class CombatHUD {
     this.abilityBar = this.root.querySelector('#hud-ability-bar') as HTMLDivElement;
     this.bossBar = this.root.querySelector('#hud-boss-bar') as HTMLDivElement;
     this.dmgMeterPanel = this.root.querySelector('#hud-dmg-meter') as HTMLDivElement;
+
+    this.root.querySelector('#hud-manager-btn')!.addEventListener('click', () => {
+      this.gardenManager.toggle();
+    });
 
     this.skipBtn.addEventListener('click', () => {
       SynthAudio.play('click');
@@ -162,7 +183,7 @@ export class CombatHUD {
       this.muteBtn.textContent = QualityManager.settings.muted ? '🔇' : '🔊';
     });
 
-    this.root.querySelector('#hud-settings-btn')!.addEventListener('click', onOpenSettings);
+    this.root.querySelector('#hud-settings-btn')!.addEventListener('click', onOpenPause);
     this.root.querySelector('#hud-lobby-btn')!.addEventListener('click', onExitToLobby);
 
     EventBus.on('match:paused_changed', ({ paused }) => {
@@ -172,6 +193,28 @@ export class CombatHUD {
     });
 
     EventBus.on('match:killfeed', ({ text, color }) => this.pushKillFeed(text, color));
+    EventBus.on('match:mode_tip', ({ text }) => {
+      this.modeBannerEl.textContent = `💡 ${text}`;
+      this.modeBannerEl.classList.remove('hidden');
+      setTimeout(() => this.modeBannerEl.classList.add('hidden'), 6500);
+    });
+    EventBus.on('match:survival_hp', ({ hp, maxHp, dashCd, splashCd }) => {
+      if (this.match.gameMode === 'survival') {
+        this.hpEl.textContent = `🧑‍🌾 ${hp}/${maxHp} | Dash ${dashCd > 0 ? `${dashCd.toFixed(1)}s` : 'READY'} | Splash ${splashCd > 0 ? `${splashCd.toFixed(1)}s` : 'READY'}`;
+      }
+    });
+    EventBus.on('match:rival_state', () => this.refreshModePanels());
+
+    EventBus.on('match:boss_spawned', ({ name, maxHp, maxShield }) => {
+      this.activeBossMaxHp = maxHp;
+      this.activeBossMaxShield = maxShield;
+      this.root.querySelector('#boss-name-text')!.textContent = name.toUpperCase();
+      this.bossBar.classList.remove('hidden');
+    });
+
+    EventBus.on('match:boss_defeated', () => {
+      this.bossBar.classList.add('hidden');
+    });
 
     EventBus.on('match:cash_changed', ({ delta }) => {
       const pill = this.root.querySelector('#hud-cash-pill')!;
@@ -192,24 +235,13 @@ export class CombatHUD {
     });
 
     EventBus.on('match:base_hp_changed', ({ hp, maxHp, delta }) => {
-      this.hpEl.textContent = `${hp} / ${maxHp}`;
+      if (this.match.gameMode !== 'survival') this.hpEl.textContent = `${hp} / ${maxHp}`;
       const heart = this.root.querySelector('#hud-heart')!;
       heart.textContent = hp < maxHp * 0.5 ? '💔' : '❤️';
       heart.classList.toggle('heart-fast', hp > 0 && hp < maxHp * 0.25);
       if (delta < 0) {
         this.root.querySelector('#hud-hp-pill')!.classList.add('cash-shake');
       }
-    });
-
-    EventBus.on('match:boss_spawned', ({ name, maxHp, maxShield }) => {
-      this.activeBossMaxHp = maxHp;
-      this.activeBossMaxShield = maxShield;
-      this.root.querySelector('#boss-name-text')!.textContent = name.toUpperCase();
-      this.bossBar.classList.remove('hidden');
-    });
-
-    EventBus.on('match:boss_defeated', () => {
-      this.bossBar.classList.add('hidden');
     });
 
     EventBus.on('match:state_changed', () => this.refreshAll());
@@ -232,7 +264,9 @@ export class CombatHUD {
   public show(visible: boolean): void {
     this.root.classList.toggle('hidden', !visible);
     this.wavePreview.show(visible);
-    if (visible) {
+    if (!visible) {
+      this.gardenManager.setOpen(false);
+    } else {
       this.displayedCash = this.match.cash;
       this.bossBar.classList.add('hidden');
       this.killFeedEl.innerHTML = '';
@@ -242,17 +276,78 @@ export class CombatHUD {
 
   public refreshAll(): void {
     if (!this.match.inMatch) return;
-    this.hpEl.textContent = `${this.match.baseHp} / ${this.match.maxBaseHp}`;
+    if (this.match.gameMode !== 'survival') {
+      this.hpEl.textContent = `${this.match.baseHp} / ${this.match.maxBaseHp}`;
+    }
     this.waveEl.textContent = this.match.isEndless
       ? `Endless Wave ${this.match.currentWave}`
       : `Wave ${this.match.currentWave} / ${this.match.totalWaves}`;
     this.muteBtn.textContent = QualityManager.settings.muted ? '🔇' : '🔊';
     this.speedBtn.textContent = `Speed: ${TimeScale.speed}x`;
     this.pauseBtn.textContent = TimeScale.paused ? '▶ Resume' : '⏸ Pause';
+    this.refreshModifiersBar();
+    this.refreshModePanels();
     this.refreshWaveTimeline();
     this.refreshHotbar();
     this.wavePreview.update();
     this.inspector.render();
+    this.gardenManager.render();
+  }
+
+  private refreshModifiersBar(): void {
+    const entries = Object.entries(this.match.activeModifiers).filter(([, lvl]) => lvl > 0);
+    if (entries.length === 0) {
+      this.modifiersBar.classList.add('hidden');
+      return;
+    }
+    this.modifiersBar.classList.remove('hidden');
+    this.modifiersBar.innerHTML = entries
+      .map(([id, lvl]) => {
+        const fam = MODIFIER_FAMILIES.find((f) => f.id === id);
+        if (!fam) return '';
+        return `<span class="mod-chip" title="${fam.name} Lv.${lvl}: ${fam.effectDescriptions[lvl - 1]}">${fam.icon} ${fam.name} ${lvl}</span>`;
+      })
+      .join('');
+  }
+
+  private refreshModePanels(): void {
+    if (this.match.gameMode === 'sandbox') {
+      this.sandboxBar.classList.remove('hidden');
+      this.sandboxBar.innerHTML = `
+        <span style="font-size:14px;font-weight:800;color:#fbbf24;">🛠 Sandbox</span>
+        <button class="btn btn-sm ${this.match.sandboxInfiniteCash ? 'btn-green' : 'btn-slate'}" id="sb-inf">∞ Cash</button>
+        <button class="btn btn-sm ${this.match.sandboxBaseGodMode ? 'btn-green' : 'btn-slate'}" id="sb-god">Base God</button>
+        <button class="btn btn-sm btn-slate" id="sb-ant">+5 Ants</button>
+        <button class="btn btn-sm btn-slate" id="sb-boss">+Boss</button>
+        <button class="btn btn-sm btn-gold" id="sb-w10">Wave 10</button>
+      `;
+      this.sandboxBar.querySelector('#sb-inf')!.addEventListener('click', () => {
+        this.match.sandboxInfiniteCash = !this.match.sandboxInfiniteCash;
+        this.refreshModePanels();
+      });
+      this.sandboxBar.querySelector('#sb-god')!.addEventListener('click', () => {
+        this.match.sandboxBaseGodMode = !this.match.sandboxBaseGodMode;
+        this.refreshModePanels();
+      });
+      this.sandboxBar.querySelector('#sb-ant')!.addEventListener('click', () => this.match.sandboxSpawnEnemy('garden_ant', 5));
+      this.sandboxBar.querySelector('#sb-boss')!.addEventListener('click', () => this.match.sandboxSpawnEnemy(this.match.mapDef.bossId, 1));
+      this.sandboxBar.querySelector('#sb-w10')!.addEventListener('click', () => this.match.sandboxJumpToWave(10));
+    } else {
+      this.sandboxBar.classList.add('hidden');
+    }
+
+    if (this.match.gameMode === 'rival') {
+      this.rivalBar.classList.remove('hidden');
+      this.rivalBar.innerHTML = `
+        <span style="font-size:14px;font-weight:800;">⚔ Rival HP: ${this.match.rivalHp}/${this.match.rivalMaxHp} | Score ${this.match.playerWaveScore} vs ${this.match.rivalWaveScore}</span>
+        <button class="btn btn-sm btn-gold" id="rv-send-mouse">Send Mouse ($120)</button>
+        <button class="btn btn-sm btn-rose" id="rv-send-beetle">Send Beetle ($240)</button>
+      `;
+      this.rivalBar.querySelector('#rv-send-mouse')!.addEventListener('click', () => this.match.sendRivalEnemy('pocket_mouse', 120));
+      this.rivalBar.querySelector('#rv-send-beetle')!.addEventListener('click', () => this.match.sendRivalEnemy('iron_beetle', 240));
+    } else {
+      this.rivalBar.classList.add('hidden');
+    }
   }
 
   private refreshWaveTimeline(): void {
@@ -286,7 +381,10 @@ export class CombatHUD {
         const cb = QualityManager.settings.colorblindMode ? RARITIES[unit.rarity].symbolChar : '';
         const portrait = ProceduralTextures.getUnitPortraitUrl(uId);
         const isActive = this.input.activeSlotIndex === idx;
-        const cantAfford = this.match.cash < unit.cost || placed >= unit.cap;
+        const effectiveCost = Math.round((unit.cost * this.match.modifierEffects.towerCostMult) / 5) * 5;
+        const cantAfford = (!this.match.sandboxInfiniteCash && this.match.cash < effectiveCost) || placed >= unit.cap;
+        const varId = owned?.variant ?? 'none';
+        const varTag = varId !== 'none' ? `<span style="color:${VARIANTS[varId].color};">★${VARIANTS[varId].label}</span>` : '';
 
         return `
           <button class="hotbar-card ${isActive ? 'active' : ''} ${cantAfford ? 'unaffordable' : 'affordable-glow'}" data-slot="${idx}" style="border-color:${hex};">
@@ -294,10 +392,10 @@ export class CombatHUD {
             <img src="${portrait}" alt="${unit.name}" style="width:56px;height:56px;border-radius:8px;border:2px solid ${hex};" />
             <div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">${cb} ${unit.name.split(' ')[0]}</div>
             <div style="font-size:14px;display:flex;justify-content:space-between;width:100%;">
-              <span class="card-cost">$${unit.cost}</span>
+              <span class="card-cost">$${effectiveCost}</span>
               <span>${placed}/${unit.cap}</span>
             </div>
-            <div style="font-size:14px;color:${owned ? TRAITS[owned.trait].color : '#94a3b8'};">${owned?.trait ?? ''}</div>
+            <div style="font-size:14px;color:${owned ? TRAITS[owned.trait].color : '#94a3b8'};">${owned?.trait ?? ''} ${varTag}</div>
           </button>
         `;
       })

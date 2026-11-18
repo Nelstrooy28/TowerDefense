@@ -37,6 +37,9 @@ export interface GameEvents {
   'match:bloom_chest': { seeds: number; dewdrops: number; wave: number };
   'match:killfeed': { text: string; color?: string };
   'match:paused_changed': { paused: boolean };
+  'match:survival_hp': { hp: number; maxHp: number; dashCd: number; splashCd: number };
+  'match:mode_tip': { text: string };
+  'match:rival_state': { rivalHp: number; rivalMaxHp: number; playerWaveScore: number; rivalWaveScore: number };
 
   'tower:selected': { towerId: string | null };
   'tower:placed': { unitId: string; x: number; z: number };
@@ -56,7 +59,17 @@ export interface GameEvents {
   'crate:pulled': { unitId: string; rarity: RarityId; trait: TraitId; isNew: boolean };
   'ui:open_lobby': void;
   'ui:open_unit_inventory': { unitId: string };
-  'ui:start_match': { mapId: MapId; difficulty: DifficultyId; mode?: GameModeId; puzzleId?: number };
+  'ui:hub_focus': { target: 'hub' | 'summon' | 'shop' | 'play' };
+  'ui:toggle_manager': void;
+  'ui:restart_match': void;
+  'ui:start_match': {
+    mapId: MapId;
+    difficulty: DifficultyId;
+    mode?: GameModeId;
+    puzzleId?: number;
+    storyChapterId?: number;
+    modifiers?: Record<string, number>;
+  };
 }
 
 type Listener<T> = (payload: T) => void;

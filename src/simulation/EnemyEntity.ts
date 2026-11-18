@@ -5,6 +5,7 @@ import { MeshFactory, type EnemyRigRefs } from '../rendering/MeshFactory';
 import { EnemyAnimator, type HitReactionType } from '../rendering/Animator';
 import { QualityManager } from '../core/QualityManager';
 import { EventBus } from '../core/EventBus';
+import { getEnemyToughnessClass } from '../data/BalanceConfig';
 
 let NEXT_ENEMY_ID = 1;
 
@@ -65,6 +66,8 @@ export class EnemyEntity {
   public isCocooned = false;
   public cocoonHatchTimer = 0;
   public hatchedToMoth = false;
+  public hasRevived = false;
+  public ashTimer = 0;
   public gnawCooldown = 0;
 
   // Boss AI
@@ -308,6 +311,13 @@ export class EnemyEntity {
     if (options.sourceTowerId) this.killerTowerId = options.sourceTowerId;
 
     if (this.hp <= 0) {
+      if (this.def.revivesOnce && !this.hasRevived) {
+        this.hasRevived = true;
+        this.ashTimer = 1.5;
+        this.hp = Math.max(1, Math.round(this.maxHp * 0.5));
+        this.rig.bodyGroup.scale.set(0.65, 0.22, 0.65);
+        return { hpDamage: actualHpDmg, shieldShattered, killed: false, wasOverkill: false };
+      }
       this.hp = 0;
       this.isDead = true;
       const wasOverkill = !this.def.isBoss && dmg > hpBefore * 2;
@@ -408,6 +418,14 @@ export class EnemyEntity {
       }
     }
 
+    if (this.ashTimer > 0) {
+      this.ashTimer = Math.max(0, this.ashTimer - dt);
+      if (this.ashTimer <= 0) {
+        this.rig.bodyGroup.scale.set(1, 1, 1);
+      }
+      return { burnTickDmg, bleedTickDmg, poisonTickDmg };
+    }
+
     // Burrowing Mole
     if (this.def.canBurrow) {
       this.burrowCycleTimer += dt;
@@ -472,7 +490,10 @@ export class EnemyEntity {
 
     const hpPct = Math.max(0, Math.min(100, (this.hp / this.maxHp) * 100));
     const chipPct = Math.max(hpPct, Math.min(100, (this.chipHp / this.maxHp) * 100));
+    const toughness = getEnemyToughnessClass(this.maxHp);
     this.hpFillEl.style.width = `${hpPct.toFixed(1)}%`;
+    this.hpFillEl.style.background = toughness.barColor;
+    this.hpEl.style.borderColor = toughness.barColor;
     this.chipFillEl.style.width = `${chipPct.toFixed(1)}%`;
 
     if (this.maxArmor > 0 && this.armor > 0) {
@@ -483,7 +504,8 @@ export class EnemyEntity {
     }
 
     const cbEl = this.hpEl.querySelector('.cb-symbol') as HTMLSpanElement;
-    cbEl.textContent = QualityManager.settings.colorblindMode ? this.def.colorblindSymbol : '';
+    const cbSym = QualityManager.settings.colorblindMode ? this.def.colorblindSymbol : '';
+    cbEl.textContent = toughness.skull ? `💀${cbSym}` : cbSym;
 
     // 3D InstancedMesh renders status icons in VFXManager; keep DOM text only for multi-stack poison counter
     this.statusEl.textContent =

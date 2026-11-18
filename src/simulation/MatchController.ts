@@ -4,9 +4,17 @@ import { computeScaledEnemyHP, ENEMIES, type EnemyTypeId } from '../data/EnemyRe
 import { getEliteSpawnChance, rollEliteModifier } from '../data/ModifierConfig';
 import { getUnitById } from '../data/UnitRegistry';
 import { getCalendarSeason } from '../data/WeatherConfig';
+import { getAuthoredWave } from '../data/waves/WaveDefinitions';
+import {
+  computeModifierEffects,
+  ECONOMY_CONFIG,
+  getHourlyChallengeModifiers,
+  type ActiveModifierEffects,
+} from '../data/BalanceConfig';
 import {
   GARDEN_PUZZLES,
   getWeeklyChallengeForDate,
+  STORY_CHAPTERS,
   type GameModeId,
 } from '../data/GameModesConfig';
 import { EventBus } from '../core/EventBus';
@@ -14,6 +22,7 @@ import { SaveManager } from '../core/SaveManager';
 import { TimeScale } from '../core/TimeScale';
 import { Engine } from '../core/Engine';
 import { MeshFactory, type MapSceneHandles } from '../rendering/MeshFactory';
+import { PropKit } from '../rendering/props/PropKit';
 import { VFXManager } from '../rendering/VFXManager';
 import { DecalManager } from '../rendering/DecalManager';
 import { GrassField } from '../rendering/GrassField';
@@ -33,6 +42,8 @@ export interface WaveSpawnEntry {
   type: EnemyTypeId;
   count: number;
   interval: number;
+  lane?: number;
+  hpMult?: number;
 }
 
 export interface WavePreviewInfo {
@@ -129,6 +140,50 @@ export class MatchController {
   // Living Garden Hub plants (§13.1)
   public hubPlants: Array<{ unitId: string; root: THREE.Group }> = [];
 
+  // v4 Doc 02 & Doc 06 Match State (Modifiers, Path Units, Survival, Sandbox, Rival, Story)
+  public activeModifiers: Record<string, number> = {};
+  public modifierEffects: ActiveModifierEffects = computeModifierEffects({});
+  public activeStoryChapterId: number | null = null;
+  public rollerCooldown = 0;
+  private waveCombatCashEarned = 0;
+
+  private gnomeSoldiers: Array<{
+    mesh: THREE.Group;
+    hp: number;
+    maxHp: number;
+    dmg: number;
+    splineIdx: number;
+    progress: number;
+  }> = [];
+
+  private sunCoins: Array<{
+    mesh: THREE.Mesh;
+    x: number;
+    z: number;
+    value: number;
+    age: number;
+    autoPickupDelay: number;
+  }> = [];
+
+  // Survival Mode Gardener Avatar (Doc 06 §4.1)
+  public gardenerMesh: THREE.Group | null = null;
+  public gardenerHp = 100;
+  public gardenerMaxHp = 100;
+  public gardenerDashCd = 0;
+  public gardenerSplashCd = 0;
+  private gardenerOutOfCombatSec = 0;
+  private gardenerKeys = new Set<string>();
+
+  // Sandbox Mode flags (Doc 06 §4.2)
+  public sandboxInfiniteCash = false;
+  public sandboxBaseGodMode = false;
+
+  // Rival Garden state (Doc 06 §4.3)
+  public rivalHp = 100;
+  public rivalMaxHp = 100;
+  public rivalWaveScore = 0;
+  public playerWaveScore = 0;
+
   constructor(engine: Engine, worldPopupContainer: HTMLElement) {
     this.engine = engine;
     this.worldPopupContainer = worldPopupContainer;
@@ -172,6 +227,17 @@ export class MatchController {
     this.loadDiorama('sunny_backyard');
     this.rebuildHubGarden();
     this.engine.applyLobbySeasonTint(getCalendarSeason());
+
+    window.addEventListener('keydown', (ev) => {
+      this.gardenerKeys.add(ev.code);
+      if (this.inMatch && this.gameMode === 'survival' && !this.matchEnded) {
+        if (ev.code === 'Space') this.triggerSurvivalDash();
+        if (ev.code === 'KeyE') this.triggerSurvivalSplash();
+      }
+    });
+    window.addEventListener('keyup', (ev) => {
+      this.gardenerKeys.delete(ev.code);
+    });
   }
 
   public rebuildHubGarden(): void {
@@ -189,7 +255,8 @@ export class MatchController {
         unit.rarity,
         owned.trait,
         owned.soilSkin,
-        owned.isPrime
+        owned.isPrime,
+        owned.variant ?? 'none'
       );
       const col = idx % 5;
       const row = Math.floor(idx / 5);
@@ -225,30 +292,49 @@ export class MatchController {
     mapId: MapId,
     difficultyId: DifficultyId,
     mode: GameModeId = 'standard',
-    puzzleId?: number
+    puzzleId?: number,
+    options: { modifiers?: Record<string, number>; storyChapterId?: number } = {}
   ): void {
     this.gameMode = mode;
     this.activePuzzleId = puzzleId ?? null;
+    this.activeStoryChapterId = options.storyChapterId ?? null;
 
     let actualMap = mapId;
     let actualDiff = difficultyId;
-    const diff = DIFFICULTIES[actualDiff];
-    let startingCash = diff.startingCash;
+    let diff = DIFFICULTIES[actualDiff];
+    this.activeModifiers =
+      mode === 'hourly' ? getHourlyChallengeModifiers().modifiers : { ...(options.modifiers ?? {}) };
+    this.modifierEffects = computeModifierEffects(this.activeModifiers);
+
+    let startingCash = Math.round(diff.startingCash * this.modifierEffects.startCashMult);
     let waves = diff.waves;
 
     if (mode === 'weekly') {
       const weekly = getWeeklyChallengeForDate();
       actualMap = weekly.mapId;
       actualDiff = weekly.difficulty;
+      diff = DIFFICULTIES[actualDiff];
       startingCash = weekly.enemySpeedMult >= 2 ? diff.startingCash * 2 : diff.startingCash;
     } else if (mode === 'boss_rush') {
       startingCash = 5000;
-      waves = 8; // 4 bosses separated by 1 minion wave each (§12)
+      waves = 8;
     } else if (mode === 'puzzle' && puzzleId) {
       const puz = GARDEN_PUZZLES.find((p) => p.id === puzzleId) ?? GARDEN_PUZZLES[0];
       actualMap = puz.mapId;
       startingCash = puz.startingCash;
       waves = 1;
+    } else if (mode === 'story' && options.storyChapterId) {
+      const ch = STORY_CHAPTERS.find((c) => c.id === options.storyChapterId) ?? STORY_CHAPTERS[0];
+      actualMap = ch.mapId;
+      startingCash = ch.startingCash;
+      waves = ch.waves;
+    } else if (mode === 'sandbox') {
+      startingCash = 25000;
+      this.sandboxInfiniteCash = true;
+      this.sandboxBaseGodMode = false;
+    } else {
+      this.sandboxInfiniteCash = false;
+      this.sandboxBaseGodMode = false;
     }
 
     this.inMatch = true;
@@ -256,7 +342,7 @@ export class MatchController {
     this.loadDiorama(actualMap);
 
     this.difficultyId = actualDiff;
-    this.isEndless = false;
+    this.isEndless = mode === 'endless';
     this.matchEnded = false;
     this.cash = startingCash;
     this.baseHp = diff.baseHP;
@@ -266,6 +352,8 @@ export class MatchController {
     this.waveActive = false;
     this.waveCountdown = 5.0;
     this.skipBonusAvailable = false;
+    this.rollerCooldown = 0;
+    this.waveCombatCashEarned = 0;
     this.meteorHazards = [];
     this.poisonClouds = [];
     this.blizzardTimer = 0;
@@ -274,6 +362,35 @@ export class MatchController {
     this.bossEntranceTimer = 0;
     this.matchElapsedSec = 0;
     this.topSingleHit = 0;
+    this.rivalHp = diff.baseHP;
+    this.rivalMaxHp = diff.baseHP;
+    this.rivalWaveScore = 0;
+    this.playerWaveScore = 0;
+
+    if (mode === 'survival') {
+      this.gardenerHp = 100;
+      this.gardenerMaxHp = 100;
+      this.gardenerDashCd = 0;
+      this.gardenerSplashCd = 0;
+      this.gardenerOutOfCombatSec = 0;
+      this.gardenerMesh = PropKit.buildGardenerAvatar();
+      this.gardenerMesh.position.set(0, 0, 0);
+      this.engine.scene.add(this.gardenerMesh);
+      EventBus.emit('match:survival_hp', { hp: 100, maxHp: 100, dashCd: 0, splashCd: 0 });
+      EventBus.emit('match:mode_tip', {
+        text: 'Survival: WASD to move, Space to Dash, E for Watering Can Splash!',
+      });
+    } else if (mode === 'story' && options.storyChapterId) {
+      const ch = STORY_CHAPTERS.find((c) => c.id === options.storyChapterId);
+      if (ch) EventBus.emit('match:mode_tip', { text: `Sprout: ${ch.sproutQuote}` });
+    } else if (mode === 'rival') {
+      EventBus.emit('match:rival_state', {
+        rivalHp: this.rivalHp,
+        rivalMaxHp: this.rivalMaxHp,
+        playerWaveScore: 0,
+        rivalWaveScore: 0,
+      });
+    }
 
     TimeScale.resetMatch();
     this.weather.reset();
@@ -313,6 +430,14 @@ export class MatchController {
     this.sellingTowers = [];
     for (const e of this.enemies) e.destroy(this.engine.scene);
     this.enemies = [];
+    for (const g of this.gnomeSoldiers) this.engine.scene.remove(g.mesh);
+    this.gnomeSoldiers = [];
+    for (const c of this.sunCoins) this.engine.scene.remove(c.mesh);
+    this.sunCoins = [];
+    if (this.gardenerMesh) {
+      this.engine.scene.remove(this.gardenerMesh);
+      this.gardenerMesh = null;
+    }
     this.poisonClouds = [];
     this.spawnQueue = [];
     this.vfx.clearAll();
@@ -342,6 +467,15 @@ export class MatchController {
     if (!this.inMatch || this.matchEnded) return null;
     const unit = getUnitById(unitId);
 
+    if (unit.isRoller && this.rollerCooldown > 0) {
+      SynthAudio.play('error');
+      EventBus.emit('toast:show', {
+        title: `Garden Roller cooling down (${this.rollerCooldown.toFixed(1)} s)`,
+        color: '#fbbf24',
+      });
+      return null;
+    }
+
     if (this.gameMode === 'weekly') {
       const w = getWeeklyChallengeForDate();
       if (w.onlyRarity && unit.rarity !== w.onlyRarity) {
@@ -358,7 +492,16 @@ export class MatchController {
       }
     }
 
-    const check = this.placement.validate(unit, x, z, this.getPlacedFootprints(), this.cash);
+    const effectiveCash = this.sandboxInfiniteCash ? 999999 : this.cash;
+    const check = this.placement.validate(
+      unit,
+      x,
+      z,
+      this.getPlacedFootprints(),
+      effectiveCash,
+      this.modifierEffects.maxTowers,
+      this.modifierEffects.towerCostMult
+    );
     if (!check.valid) {
       if (check.reason.startsWith('Need')) {
         EventBus.emit('match:insufficient_cash', undefined);
@@ -368,8 +511,26 @@ export class MatchController {
       return null;
     }
 
-    this.addCash(-unit.cost);
-    const tower = new TowerEntity(unitId, x, check.y, z, this.engine.scene);
+    const costPaid = Math.round((unit.cost * this.modifierEffects.towerCostMult) / 5) * 5;
+    if (!this.sandboxInfiniteCash) this.addCash(-costPaid);
+    if (unit.isRoller) this.rollerCooldown = ECONOMY_CONFIG.gardenRollerResetCooldownSec;
+
+    const tower = new TowerEntity(
+      unitId,
+      x,
+      check.y,
+      z,
+      this.engine.scene,
+      this.currentWave,
+      costPaid,
+      check.nearestSplineIdx ?? 0,
+      check.nearestT ?? 0.5
+    );
+    tower.modDmgMult = this.modifierEffects.towerDmgMult;
+    tower.modCdMult = this.modifierEffects.towerCdMult;
+    tower.modRangeMult = this.modifierEffects.towerRangeMult;
+    tower.modCostMult = this.modifierEffects.towerCostMult;
+
     this.towers.push(tower);
     this.rootNetwork.computeLinks(this.towers);
 
@@ -398,13 +559,13 @@ export class MatchController {
   public upgradeTower(tower: TowerEntity): boolean {
     const cost = tower.getNextUpgradeCost();
     if (cost === null) return false;
-    if (this.cash < cost) {
+    if (!this.sandboxInfiniteCash && this.cash < cost) {
       EventBus.emit('match:insufficient_cash', undefined);
       SynthAudio.play('error');
       return false;
     }
-    this.addCash(-cost);
-    tower.upgrade(cost);
+    if (!this.sandboxInfiniteCash) this.addCash(-cost);
+    tower.upgrade(cost, this.currentWave);
     this.rootNetwork.computeLinks(this.towers);
     this.vfx.spawnRecipe('upgrade_spiral', tower.position.x, tower.position.y + 0.3, tower.position.z);
     if (tower.level === 5) {
@@ -428,15 +589,118 @@ export class MatchController {
     return count;
   }
 
+  /** Doc 03 §3 Upgrade cheapest placed towers sequentially until cash runs out. */
+  public upgradeAllAffordable(): number {
+    let upgradedCount = 0;
+    while (true) {
+      const candidates = this.towers
+        .filter((t) => t.level < 5)
+        .map((t) => ({ t, cost: t.getNextUpgradeCost() ?? Infinity }))
+        .sort((a, b) => a.cost - b.cost);
+      if (candidates.length === 0) break;
+      if (!this.upgradeTower(candidates[0].t)) break;
+      upgradedCount++;
+      if (upgradedCount >= 40) break;
+    }
+    return upgradedCount;
+  }
+
+  public collectSunCoinsNearPoint(wx: number, wz: number, radius = 2.4): number {
+    let collected = 0;
+    for (let i = this.sunCoins.length - 1; i >= 0; i--) {
+      const coin = this.sunCoins[i];
+      if (Math.hypot(coin.x - wx, coin.z - wz) <= radius) {
+        this.spawnCashBurst(coin.x, 1.0, coin.z, coin.value);
+        this.engine.scene.remove(coin.mesh);
+        this.sunCoins.splice(i, 1);
+        collected += coin.value;
+        SynthAudio.play('coin');
+      }
+    }
+    return collected;
+  }
+
+  public triggerSurvivalDash(): void {
+    if (this.gardenerDashCd > 0 || !this.gardenerMesh) return;
+    this.gardenerDashCd = 3.0;
+    let dx = 0;
+    let dz = 0;
+    if (this.gardenerKeys.has('KeyW') || this.gardenerKeys.has('ArrowUp')) dz -= 1;
+    if (this.gardenerKeys.has('KeyS') || this.gardenerKeys.has('ArrowDown')) dz += 1;
+    if (this.gardenerKeys.has('KeyA') || this.gardenerKeys.has('ArrowLeft')) dx -= 1;
+    if (this.gardenerKeys.has('KeyD') || this.gardenerKeys.has('ArrowRight')) dx += 1;
+    if (dx === 0 && dz === 0) dz = -1;
+    const len = Math.hypot(dx, dz) || 1;
+    const b = this.mapDef.boundsHalfSize - 1.5;
+    this.gardenerMesh.position.x = THREE.MathUtils.clamp(this.gardenerMesh.position.x + (dx / len) * 4.5, -b, b);
+    this.gardenerMesh.position.z = THREE.MathUtils.clamp(this.gardenerMesh.position.z + (dz / len) * 4.5, -b, b);
+    this.vfx.spawnRecipe('wilt_leaves', this.gardenerMesh.position.x, 0.4, this.gardenerMesh.position.z);
+    SynthAudio.play('place_root');
+  }
+
+  public triggerSurvivalSplash(): void {
+    if (this.gardenerSplashCd > 0 || !this.gardenerMesh) return;
+    this.gardenerSplashCd = 5.0;
+    const gx = this.gardenerMesh.position.x;
+    const gz = this.gardenerMesh.position.z;
+    this.vfx.spawnShockwave(gx, 0.15, gz, 6.0, 0x38bdf8, 0.6);
+    for (const e of this.enemies) {
+      if (!e.isDead && Math.hypot(e.position.x - gx, e.position.z - gz) <= 6.0) {
+        e.wetTimer = Math.max(e.wetTimer, 4.0);
+        e.applyKnockback(1.4, 1);
+      }
+    }
+    this.gardenerHp = Math.min(this.gardenerMaxHp, this.gardenerHp + 15);
+    SynthAudio.play('water_pulse');
+  }
+
+  public sendRivalEnemy(type: EnemyTypeId, cost: number): boolean {
+    if (this.gameMode !== 'rival' || this.cash < cost) return false;
+    this.addCash(-cost);
+    const dmgToRival = Math.max(2, Math.round(ENEMIES[type].baseHP / 80));
+    this.rivalHp = Math.max(0, this.rivalHp - dmgToRival);
+    this.playerWaveScore += dmgToRival * 25;
+    EventBus.emit('toast:show', { title: `Sent ${ENEMIES[type].name} to Rival!`, color: '#fbbf24' });
+    EventBus.emit('match:rival_state', {
+      rivalHp: this.rivalHp,
+      rivalMaxHp: this.rivalMaxHp,
+      playerWaveScore: this.playerWaveScore,
+      rivalWaveScore: this.rivalWaveScore,
+    });
+    if (this.rivalHp <= 0 && !this.matchEnded) {
+      this.currentWave = this.totalWaves;
+      this.onWaveCleared();
+    }
+    return true;
+  }
+
+  // Sandbox Helper Tools (Doc 06 §4.2)
+  public sandboxSpawnEnemy(type: EnemyTypeId, count = 1): void {
+    for (let i = 0; i < count; i++) this.spawnEnemy(type, i % (this.mapHandles?.splines.length ?? 1));
+  }
+
+  public sandboxJumpToWave(wave: number): void {
+    this.currentWave = Math.max(0, wave - 1);
+    this.enemies.forEach((e) => e.destroy(this.engine.scene));
+    this.enemies = [];
+    this.spawnQueue = [];
+    this.startNextWave();
+  }
+
   public sellTower(tower: TowerEntity, forceUndo = false): void {
     if (this.gameMode === 'weekly' && !forceUndo && getWeeklyChallengeForDate().noSelling) {
       SynthAudio.play('error');
       EventBus.emit('toast:show', { title: 'Weekly Rule: Selling disabled!', color: '#f43f5e' });
       return;
     }
+    if (tower.def.isRoller && !forceUndo) {
+      SynthAudio.play('error');
+      EventBus.emit('toast:show', { title: 'Garden Rollers cannot be sold once rolling!', color: '#f43f5e' });
+      return;
+    }
     const idx = this.towers.indexOf(tower);
     if (idx === -1) return;
-    const refund = forceUndo ? tower.totalSpentCash : tower.getSellRefund();
+    const refund = forceUndo ? tower.totalSpentCash : tower.getSellRefund(this.currentWave);
     this.vfx.spawnRecipe('wilt_leaves', tower.position.x, tower.position.y + 0.4, tower.position.z);
     this.popups.spawnDamage(tower.position.x, tower.position.y + 1.0, tower.position.z, refund, 'cash');
     this.addCash(refund);
@@ -458,7 +722,12 @@ export class MatchController {
   }
 
   public getEarlySkipBonus(): number {
-    return Math.round(45 + this.currentWave * 6);
+    const waveBonus = ECONOMY_CONFIG.waveBonus(this.currentWave);
+    const share = Math.min(
+      ECONOMY_CONFIG.earlySkipMaxShare,
+      ECONOMY_CONFIG.earlySkipRatePer10Sec * (Math.max(1, this.waveCountdown) / 10)
+    );
+    return Math.max(25, Math.round(waveBonus * share));
   }
 
   public skipWave(): void {
@@ -529,23 +798,17 @@ export class MatchController {
       ];
     }
 
-    const entries: WaveSpawnEntry[] = [];
+    const authored = getAuthoredWave(this.mapDef.id, this.difficultyId, wave, this.totalWaves, this.isEndless);
+    const countMult = this.modifierEffects.enemyCountMult;
+    const entries: WaveSpawnEntry[] = authored.groups.map((g) => ({
+      type: g.e,
+      count: Math.max(1, Math.round(g.count * countMult)),
+      interval: g.gap,
+      lane: g.lane,
+      hpMult: g.hpMult,
+    }));
+
     const isFinalBoss = !this.isEndless && wave === this.totalWaves;
-
-    const antCount = Math.min(48, 8 + wave * 2);
-    entries.push({ type: 'garden_ant', count: antCount, interval: Math.max(0.18, 0.55 - wave * 0.01) });
-
-    if (wave >= 3) entries.push({ type: 'aphid_cluster', count: Math.min(12, 2 + Math.floor(wave * 0.35)), interval: 0.75 });
-    if (wave >= 4) entries.push({ type: 'sprinter_mantis', count: Math.min(24, 3 + Math.floor(wave * 0.7)), interval: 0.48 });
-    if (wave >= 7) entries.push({ type: 'iron_beetle', count: Math.min(18, 2 + Math.floor((wave - 5) * 0.6)), interval: 0.75 });
-    if (wave >= 9) entries.push({ type: 'caterpillar_cocoon', count: Math.min(10, 1 + Math.floor((wave - 7) * 0.4)), interval: 0.9 });
-    if (wave >= 11) entries.push({ type: 'burrowing_mole', count: Math.min(14, 2 + Math.floor((wave - 9) * 0.45)), interval: 0.85 });
-    if (wave >= 13) entries.push({ type: 'termite_gnawer', count: Math.min(10, 1 + Math.floor((wave - 11) * 0.4)), interval: 0.9 });
-    if (wave >= 15) entries.push({ type: 'spore_wasp', count: Math.min(12, 1 + Math.floor((wave - 13) * 0.4)), interval: 1.0 });
-    if (wave >= 18) entries.push({ type: 'locust_swarm', count: Math.min(4, 1 + Math.floor((wave - 16) * 0.25)), interval: 1.5 });
-    if (wave % 10 === 0 && !isFinalBoss) {
-      entries.push({ type: 'gargantuan_snail', count: Math.max(1, Math.floor(wave / 15)), interval: 2.5 });
-    }
     if (isFinalBoss || (this.isEndless && wave % 20 === 0)) {
       entries.push({ type: this.mapDef.bossId, count: 1, interval: 1.0 });
     }
@@ -557,8 +820,17 @@ export class MatchController {
     this.currentWave++;
     this.waveActive = true;
     this.skipBonusAvailable = false;
+    this.waveCombatCashEarned = 0;
 
     const preview = this.getWavePreview(this.currentWave);
+    const authored = getAuthoredWave(this.mapDef.id, this.difficultyId, this.currentWave, this.totalWaves, this.isEndless);
+    if (authored.tip) {
+      EventBus.emit('match:mode_tip', { text: authored.tip });
+    }
+    if (this.mapDef.id === 'zen_garden' && this.currentWave > 1 && this.currentWave % 10 === 1 && this.mapHandles?.rotatingBridge) {
+      this.mapHandles.rotatingBridge.rotation.y += Math.PI * 0.5;
+    }
+
     this.weather.onWaveStarted(this.currentWave, preview.isBossWave, !!this.mapDef.hasBlizzardHazards);
 
     if (this.mapDef.hasBlizzardHazards && this.currentWave % 4 === 0) {
@@ -580,7 +852,7 @@ export class MatchController {
       for (let i = 0; i < entry.count; i++) {
         this.spawnQueue.push({
           type: entry.type,
-          splineIdx: splineCursor % splineCount,
+          splineIdx: entry.lane !== undefined ? entry.lane % splineCount : splineCursor % splineCount,
           delay: entry.interval,
         });
         splineCursor++;
@@ -625,7 +897,8 @@ export class MatchController {
   private spawnEnemy(type: EnemyTypeId, splineIdx: number, customProgress = 0): EnemyEntity | null {
     if (!this.mapHandles) return null;
     const spline = this.mapHandles.splines[splineIdx] ?? this.mapHandles.splines[0];
-    const diffMult = DIFFICULTIES[this.difficultyId].enemyHpMult;
+    const diffDef = DIFFICULTIES[this.difficultyId];
+    const diffMult = diffDef.enemyHpMult * this.modifierEffects.enemyHpMult;
     const scaledHp = computeScaledEnemyHP(ENEMIES[type].baseHP, this.currentWave, diffMult);
 
     if (this.enemies.length >= 150 && type === 'garden_ant') {
@@ -637,11 +910,12 @@ export class MatchController {
     }
 
     const endlessExtraMod = this.isEndless && this.currentWave >= 25 ? rollEliteModifier() : null;
-    const eliteChance = !ENEMIES[type].isBoss && !ENEMIES[type].isMiniBoss ? getEliteSpawnChance(this.currentWave) : 0;
+    const eliteChance = !ENEMIES[type].isBoss && !ENEMIES[type].isMiniBoss ? Math.min(diffDef.eliteChanceCap || 0.25, getEliteSpawnChance(this.currentWave)) : 0;
     const isElite = Boolean(endlessExtraMod) || Math.random() < eliteChance;
     const eliteMod = endlessExtraMod ?? (isElite ? rollEliteModifier() : null);
 
-    const speedMult = this.gameMode === 'weekly' ? getWeeklyChallengeForDate().enemySpeedMult : 1.0;
+    const weeklyMult = this.gameMode === 'weekly' ? getWeeklyChallengeForDate().enemySpeedMult : 1.0;
+    const speedMult = weeklyMult * diffDef.enemySpeedMult * this.modifierEffects.enemySpeedMult;
 
     const enemy = new EnemyEntity(
       type,
@@ -696,8 +970,14 @@ export class MatchController {
   private handleDamageCredit(tower: TowerEntity | null, hpStripped: number, enemy: EnemyEntity): void {
     if (hpStripped <= 0) return;
     if (hpStripped > this.topSingleHit) this.topSingleHit = Math.round(hpStripped);
-    const cashGain = Math.max(0, Math.floor(hpStripped / 12));
-    if (cashGain > 0) this.addCash(cashGain);
+    const cashGain = Math.max(
+      0,
+      Math.floor((hpStripped / ECONOMY_CONFIG.damageCashDivisor) * this.modifierEffects.incomeMult)
+    );
+    if (cashGain > 0) {
+      this.waveCombatCashEarned += cashGain;
+      this.addCash(cashGain);
+    }
     if (tower) {
       tower.totalDamageDealt += Math.round(hpStripped);
       tower.recordWaveDamage(this.currentWave, hpStripped);
@@ -888,6 +1168,7 @@ export class MatchController {
 
   private updateMatchSimulation(simDt: number, enemyDt: number, uiDt: number): void {
     this.matchElapsedSec += simDt;
+    if (this.rollerCooldown > 0) this.rollerCooldown = Math.max(0, this.rollerCooldown - simDt);
 
     if (this.multiKillWindow > 0) {
       this.multiKillWindow -= uiDt;
@@ -896,6 +1177,52 @@ export class MatchController {
 
     if (this.blizzardTimer > 0) {
       this.blizzardTimer = Math.max(0, this.blizzardTimer - simDt);
+    }
+
+    // Gardener Survival Avatar Update (Doc 06 §4.1)
+    if (this.gameMode === 'survival' && this.gardenerMesh && !this.matchEnded) {
+      if (this.gardenerDashCd > 0) this.gardenerDashCd = Math.max(0, this.gardenerDashCd - simDt);
+      if (this.gardenerSplashCd > 0) this.gardenerSplashCd = Math.max(0, this.gardenerSplashCd - simDt);
+      this.gardenerOutOfCombatSec += simDt;
+
+      let mx = 0;
+      let mz = 0;
+      if (this.gardenerKeys.has('KeyW') || this.gardenerKeys.has('ArrowUp')) mz -= 1;
+      if (this.gardenerKeys.has('KeyS') || this.gardenerKeys.has('ArrowDown')) mz += 1;
+      if (this.gardenerKeys.has('KeyA') || this.gardenerKeys.has('ArrowLeft')) mx -= 1;
+      if (this.gardenerKeys.has('KeyD') || this.gardenerKeys.has('ArrowRight')) mx += 1;
+      if (mx !== 0 || mz !== 0) {
+        const len = Math.hypot(mx, mz) || 1;
+        const b = this.mapDef.boundsHalfSize - 1.5;
+        this.gardenerMesh.position.x = THREE.MathUtils.clamp(this.gardenerMesh.position.x + (mx / len) * 6.5 * simDt, -b, b);
+        this.gardenerMesh.position.z = THREE.MathUtils.clamp(this.gardenerMesh.position.z + (mz / len) * 6.5 * simDt, -b, b);
+        this.gardenerMesh.rotation.y = Math.atan2(mx, mz);
+        this.gardenerMesh.position.y = Math.abs(Math.sin(this.matchElapsedSec * 12)) * 0.14;
+      }
+      this.collectSunCoinsNearPoint(this.gardenerMesh.position.x, this.gardenerMesh.position.z, 2.2);
+
+      // Pests contact damage to Gardener + 2 HP/s out-of-combat regen
+      for (const e of this.enemies) {
+        if (e.isDead || e.reachedGoal) continue;
+        if (Math.hypot(e.position.x - this.gardenerMesh.position.x, e.position.z - this.gardenerMesh.position.z) <= 1.2) {
+          this.gardenerOutOfCombatSec = 0;
+          this.gardenerHp = Math.max(0, this.gardenerHp - 12 * simDt);
+          if (this.gardenerHp <= 0 && !this.matchEnded) {
+            this.matchEnded = true;
+            this.waveActive = false;
+            EventBus.emit('match:defeat', { wavesCleared: Math.max(0, this.currentWave - 1) });
+          }
+        }
+      }
+      if (this.gardenerOutOfCombatSec >= 3.0 && this.gardenerHp < this.gardenerMaxHp) {
+        this.gardenerHp = Math.min(this.gardenerMaxHp, this.gardenerHp + 2 * simDt);
+      }
+      EventBus.emit('match:survival_hp', {
+        hp: Math.round(this.gardenerHp),
+        maxHp: this.gardenerMaxHp,
+        dashCd: this.gardenerDashCd,
+        splashCd: this.gardenerSplashCd,
+      });
     }
 
     // Animate selling towers ("Return to Soil" 0.6 s)
@@ -1045,7 +1372,8 @@ export class MatchController {
     const weatherDrift = weatherDef?.projectileDrift ?? 0;
     const nowTime = performance.now() * 0.001;
 
-    for (const t of this.towers) {
+    for (let ti = this.towers.length - 1; ti >= 0; ti--) {
+      const t = this.towers[ti];
       if (t.stunnedTimer > 0) t.stunnedTimer = Math.max(0, t.stunnedTimer - simDt);
       if (t.overdriveBuffTimer > 0) t.overdriveBuffTimer = Math.max(0, t.overdriveBuffTimer - simDt);
       if (t.chronoApmBuffTimer > 0) t.chronoApmBuffTimer = Math.max(0, t.chronoApmBuffTimer - simDt);
@@ -1054,7 +1382,33 @@ export class MatchController {
       if (t.frostSlowTimer > 0) t.frostSlowTimer = Math.max(0, t.frostSlowTimer - simDt);
       if (t.abilityCooldownRemaining > 0) t.abilityCooldownRemaining = Math.max(0, t.abilityCooldownRemaining - simDt);
 
-      if (t.def.isFarm && this.waveActive && t.stunnedTimer <= 0) {
+      // Sunflower Collect Farm (Doc 06 §1) vs Money Tree farm
+      if (t.def.isCollectFarm && this.waveActive && t.stunnedTimer <= 0) {
+        t.coinTimer -= simDt;
+        if (t.coinTimer <= 0) {
+          t.coinTimer = ECONOMY_CONFIG.sunflowerDropIntervalSec;
+          const ang = Math.random() * Math.PI * 2;
+          const cx = t.position.x + Math.cos(ang) * 1.4;
+          const cz = t.position.z + Math.sin(ang) * 1.4;
+          const coinMesh = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.32, 0.32, 0.1, 10),
+            new THREE.MeshStandardMaterial({ color: 0xfacc15, emissive: 0xf59e0b, emissiveIntensity: 0.9 })
+          );
+          coinMesh.position.set(cx, 0.45, cz);
+          coinMesh.rotation.x = Math.PI / 2;
+          this.engine.scene.add(coinMesh);
+          const val = Math.round(t.getFarmPayout(weatherFarmMult) * 0.45);
+          this.sunCoins.push({
+            mesh: coinMesh,
+            x: cx,
+            z: cz,
+            value: Math.max(25, val),
+            age: 0,
+            autoPickupDelay: ECONOMY_CONFIG.sunflowerAutoCollectDelaySec,
+          });
+          t.anim.triggerAttack(t.def.id);
+        }
+      } else if (t.def.isFarm && this.waveActive && t.stunnedTimer <= 0) {
         t.farmMidWaveTimer -= simDt;
         if (t.farmMidWaveTimer <= 0) {
           t.farmMidWaveTimer = 12.0;
@@ -1063,9 +1417,103 @@ export class MatchController {
         }
       }
 
+      // v4 Role: Garden Roller moving trap (rolls toward spawn at 2.5 u/s)
+      if (t.def.isRoller) {
+        const sp = this.mapHandles?.splines[t.rollerSplineIndex] ?? this.mapHandles?.splines[0];
+        if (sp) {
+          const len = sp.getLength();
+          t.rollerProgress = Math.max(0, t.rollerProgress - (2.5 * simDt) / Math.max(1, len));
+          const pt = sp.getPointAt(t.rollerProgress);
+          t.position.x = pt.x;
+          t.position.z = pt.z;
+          t.rig.root.position.set(pt.x, 0.06, pt.z);
+          t.rig.headTurret.rotation.x -= simDt * 6;
+          const rollDmg = t.getEffectiveDamage();
+          for (const e of this.enemies) {
+            if (e.isDead || e.def.isFlying || t.rollerHitEnemyIds.has(e.id)) continue;
+            if (Math.hypot(e.position.x - pt.x, e.position.z - pt.z) <= 1.7) {
+              t.rollerHitEnemyIds.add(e.id);
+              const res = e.applyDamage(rollDmg, { element: 'normal', sourceTowerId: t.id });
+              this.handleDamageCredit(t, res.hpDamage, e);
+              this.popups.spawnDamage(e.position.x, e.position.y, e.position.z, res.hpDamage, 'crit', e.id);
+            }
+          }
+          if (t.rollerProgress <= 0.01) {
+            t.destroy();
+            this.towers.splice(ti, 1);
+            this.rootNetwork.computeLinks(this.towers);
+            continue;
+          }
+        }
+      }
+
+      // v4 Role: Bramble Snare path trap
+      if (t.def.isTrap) {
+        t.cooldownRemaining = Math.max(0, t.cooldownRemaining - simDt);
+        if (t.cooldownRemaining <= 0) {
+          t.cooldownRemaining = 0.5;
+          const tickDmg = Math.round(t.getEffectiveDamage() * 0.5);
+          let hitAny = false;
+          for (const e of this.enemies) {
+            if (e.isDead || e.def.isFlying) continue;
+            if (Math.hypot(e.position.x - t.position.x, e.position.z - t.position.z) <= 1.8) {
+              hitAny = true;
+              e.applySlow(1.0, 0.25);
+              const res = e.applyDamage(tickDmg, { sourceTowerId: t.id, skipFlash: true });
+              this.handleDamageCredit(t, res.hpDamage, e);
+              t.trapHitsLeft--;
+            }
+          }
+          if (hitAny) t.anim.triggerAttack(t.def.id);
+          if (t.trapHitsLeft <= 0) {
+            this.vfx.spawnRecipe('wilt_leaves', t.position.x, 0.4, t.position.z);
+            t.destroy();
+            this.towers.splice(ti, 1);
+            this.rootNetwork.computeLinks(this.towers);
+            continue;
+          }
+        }
+      }
+
+      // v4 Role: Gnome Barracks spawner
+      if (t.def.isSpawner && this.waveActive && t.stunnedTimer <= 0) {
+        t.spawnerTimer -= simDt;
+        if (t.spawnerTimer <= 0) {
+          t.spawnerTimer = t.getEffectiveCooldown();
+          const spIdx = 0;
+          const f = t.level / 5;
+          const hp = Math.round((t.def.spawnHpBase ?? 150) + ((t.def.spawnHpMax ?? 1800) - (t.def.spawnHpBase ?? 150)) * Math.pow(f, 1.3));
+          const mesh = PropKit.buildGnomeSoldier(t.level >= 5);
+          const sp = this.mapHandles?.splines[spIdx];
+          if (sp) {
+            const p1 = sp.getPointAt(1.0);
+            mesh.position.set(p1.x, 0, p1.z);
+            this.engine.scene.add(mesh);
+            this.gnomeSoldiers.push({
+              mesh,
+              hp,
+              maxHp: hp,
+              dmg: t.getEffectiveDamage(),
+              splineIdx: spIdx,
+              progress: 1.0,
+            });
+            t.anim.triggerAttack(t.def.id);
+          }
+        }
+      }
+
       const canAttackNow = t.anim.placementTimer < 0 || t.anim.placementTimer >= 0.5;
       let target: EnemyEntity | null = null;
-      if (canAttackNow && t.stunnedTimer <= 0 && !t.def.isFarm && !t.def.isSupport) {
+      if (
+        canAttackNow &&
+        t.stunnedTimer <= 0 &&
+        !t.def.isFarm &&
+        !t.def.isSupport &&
+        !t.def.isTrap &&
+        !t.def.isRoller &&
+        !t.def.isSpawner &&
+        !t.def.isWall
+      ) {
         target = this.acquireTarget(t, weatherRangeMult);
         if (target) {
           t.anim.aimToward(t.rig, target.position.x, target.position.y, target.position.z, simDt);
@@ -1114,6 +1562,75 @@ export class MatchController {
         t.stunnedTimer > 0,
         AdaptiveMusic.currentBeatPulse
       );
+    }
+
+    // Update Sun Coins (auto-collect at 50% after 4 s)
+    for (let i = this.sunCoins.length - 1; i >= 0; i--) {
+      const c = this.sunCoins[i];
+      c.age += simDt;
+      c.mesh.rotation.z += simDt * 3;
+      c.mesh.position.y = 0.45 + Math.abs(Math.sin(c.age * 4)) * 0.25;
+      if (c.age >= c.autoPickupDelay) {
+        this.spawnCashBurst(c.x, 0.8, c.z, Math.max(10, Math.round(c.value * ECONOMY_CONFIG.sunflowerAutoCollectRatio)));
+        this.engine.scene.remove(c.mesh);
+        this.sunCoins.splice(i, 1);
+      }
+    }
+
+    // Update Gnome Soldiers marching reverse along path (1 -> 0)
+    for (let i = this.gnomeSoldiers.length - 1; i >= 0; i--) {
+      const gs = this.gnomeSoldiers[i];
+      const sp = this.mapHandles?.splines[gs.splineIdx];
+      if (!sp) {
+        this.engine.scene.remove(gs.mesh);
+        this.gnomeSoldiers.splice(i, 1);
+        continue;
+      }
+      const blocker = this.enemies.find(
+        (e) => !e.isDead && !e.def.isFlying && Math.hypot(e.position.x - gs.mesh.position.x, e.position.z - gs.mesh.position.z) <= 1.2
+      );
+      if (blocker) {
+        blocker.applyDamage(gs.dmg * simDt * 1.6, { skipFlash: true });
+        blocker.applySlow(0.5, 0.4);
+        gs.hp -= Math.max(15, blocker.def.baseDamage * 8) * simDt;
+      } else {
+        gs.progress -= (2.4 * simDt) / Math.max(1, sp.getLength());
+        if (gs.progress <= 0) {
+          this.engine.scene.remove(gs.mesh);
+          this.gnomeSoldiers.splice(i, 1);
+          continue;
+        }
+        const pt = sp.getPointAt(gs.progress);
+        gs.mesh.position.set(pt.x, Math.abs(Math.sin(this.matchElapsedSec * 10)) * 0.12, pt.z);
+      }
+      if (gs.hp <= 0) {
+        this.vfx.spawnRecipe('wilt_leaves', gs.mesh.position.x, 0.4, gs.mesh.position.z);
+        this.engine.scene.remove(gs.mesh);
+        this.gnomeSoldiers.splice(i, 1);
+      }
+    }
+
+    // Walnut Wall blocking & chew update
+    for (let wi = this.towers.length - 1; wi >= 0; wi--) {
+      const wall = this.towers[wi];
+      if (!wall.def.isWall) continue;
+      for (const e of this.enemies) {
+        if (e.isDead || e.def.isFlying) continue;
+        if (Math.hypot(e.position.x - wall.position.x, e.position.z - wall.position.z) <= 1.35) {
+          if (e.def.isBoss) {
+            wall.wallHp -= 90 * simDt * 3;
+          } else {
+            e.applySlow(0.25, 0.96); // halt & chew!
+            wall.wallHp -= Math.max(25, e.def.baseDamage * 18) * simDt;
+          }
+        }
+      }
+      if (wall.wallHp <= 0) {
+        this.vfx.spawnRecipe('root_burst_clods', wall.position.x, 0.4, wall.position.z);
+        wall.destroy();
+        this.towers.splice(wi, 1);
+        this.rootNetwork.computeLinks(this.towers);
+      }
     }
 
     const pondSplash = this.projectiles.update(simDt, this.enemies, this.mapDef.pond.x, this.mapDef.pond.z);
@@ -1457,9 +1974,9 @@ export class MatchController {
       }
     } else if (t.def.id === 'laser_plant') {
       SynthAudio.play('laser');
-      const rampStep = t.solarFlareTimer > 0 ? 0.2 : 0.1; // §7.2 Overcharge: 2x ramp speed
+      const rampStep = t.solarFlareTimer > 0 ? 0.1 : 0.05; // Doc 02 §7: +1.0 (2.0x) over 4 s
       if (t.laserTargetId === target.id) {
-        t.laserRampStacks = Math.min(1.5, t.laserRampStacks + rampStep);
+        t.laserRampStacks = Math.min(1.0, t.laserRampStacks + rampStep);
       } else {
         t.laserTargetId = target.id;
         t.laserRampStacks = 0;
@@ -1566,6 +2083,16 @@ export class MatchController {
   }
 
   private updateEnemySpecialAbilities(e: EnemyEntity, dt: number): void {
+    // Doc 06 §5 Glow Moth: Heals bugs within 3 units for 3% max HP/s
+    if (e.def.healAuraPct && e.def.healAuraRadius) {
+      for (const ally of this.enemies) {
+        if (ally === e || ally.isDead || ally.reachedGoal) continue;
+        if (Math.hypot(ally.position.x - e.position.x, ally.position.z - e.position.z) <= e.def.healAuraRadius) {
+          ally.hp = Math.min(ally.maxHp, ally.hp + ally.maxHp * e.def.healAuraPct * dt);
+        }
+      }
+    }
+
     // §8 Termite Gnawer gnaws tower roots within 2 units (-20% attack speed for 5 s)
     if (e.type === 'termite_gnawer' && e.gnawCooldown <= 0) {
       for (const t of this.towers) {
@@ -1816,6 +2343,17 @@ export class MatchController {
   }
 
   private onEnemyReachedBase(e: EnemyEntity): void {
+    // Doc 06 §5 Pocket Mouse steals $50*wave instead of damaging Base HP
+    if (e.def.stealsCashPerWave) {
+      const steal = Math.min(this.cash, e.def.stealsCashPerWave * Math.max(1, this.currentWave));
+      if (steal > 0) this.addCash(-steal);
+      this.popups.spawnDamage(e.position.x, e.position.y + 0.8, e.position.z, steal, 'crit', '', `−$${steal}`);
+      SynthAudio.play('error');
+      return;
+    }
+
+    if (this.sandboxBaseGodMode || this.gameMode === 'survival') return;
+
     const dmg = e.def.baseDamage;
     this.baseHp = Math.max(0, this.baseHp - dmg);
     const lowHp = this.baseHp > 0 && this.baseHp / this.maxBaseHp < 0.25;
@@ -1823,12 +2361,22 @@ export class MatchController {
     EventBus.emit('vfx:base_hit_vignette', { lowHp });
     SynthAudio.play('base_hit');
 
+    // Update Base Guardian Pods visibility as Base HP drops (Doc 05 §2 rule 7)
+    if (this.mapHandles?.baseStructure) {
+      const ratio = this.baseHp / Math.max(1, this.maxBaseHp);
+      for (let i = 0; i < 3; i++) {
+        const pod = this.mapHandles.baseStructure.getObjectByName(`base_pod_${i}`);
+        if (pod) pod.visible = ratio > (i + 1) * 0.25;
+      }
+    }
+
     if (this.baseHp <= 0 && !this.matchEnded) {
       this.matchEnded = true;
       this.waveActive = false;
       for (const t of this.towers) t.anim.isWilting = true;
       this.engine.postFx.setEnvironmentTint(0xffffff, 0, 0.78, 0);
       SaveManager.recordLeaderboard(this.mapDef.id, this.difficultyId, Math.max(0, this.currentWave - 1), 0, this.topSingleHit);
+      if (this.isEndless) SaveManager.recordEndlessPodium(this.mapDef.id, Math.max(0, this.currentWave - 1));
       EventBus.emit('match:defeat', { wavesCleared: Math.max(0, this.currentWave - 1) });
     }
   }
@@ -1839,12 +2387,25 @@ export class MatchController {
     this.waveCountdown = 6.0;
     this.waveFlowerTimer = 3.0;
 
-    const waveBonus = Math.floor(120 + 35 * this.currentWave + 4 * Math.pow(this.currentWave, 1.35));
-    const farmMult = this.weather.activeDef?.farmMult ?? 1.0;
+    const waveBonus = Math.round(ECONOMY_CONFIG.waveBonus(this.currentWave) * this.modifierEffects.incomeMult);
+    const farmMult = (this.weather.activeDef?.farmMult ?? 1.0) * this.modifierEffects.incomeMult;
+    const combatIncome = this.waveCombatCashEarned + waveBonus;
+    const farmCap = (combatIncome * ECONOMY_CONFIG.farmWaveShareCap) / (1 - ECONOMY_CONFIG.farmWaveShareCap);
+
+    let rawFarmTotal = 0;
+    for (const t of this.towers) {
+      if (t.def.isFarm && !t.def.isCollectFarm) {
+        rawFarmTotal += t.getFarmPayout(farmMult);
+      }
+    }
+    const cappedTotal =
+      rawFarmTotal <= farmCap ? rawFarmTotal : farmCap + (rawFarmTotal - farmCap) * ECONOMY_CONFIG.farmPostCapMult;
+    const farmScale = rawFarmTotal > 0 ? cappedTotal / rawFarmTotal : 1;
+
     let farmTotal = 0;
     for (const t of this.towers) {
-      if (t.def.isFarm) {
-        const pay = t.getFarmPayout(farmMult);
+      if (t.def.isFarm && !t.def.isCollectFarm) {
+        const pay = Math.round(t.getFarmPayout(farmMult) * farmScale);
         farmTotal += pay;
         t.anim.triggerAttack(t.def.id);
         this.spawnCashBurst(t.position.x, t.position.y + 1, t.position.z, pay);
@@ -1856,11 +2417,49 @@ export class MatchController {
     SynthAudio.play('coin');
     EventBus.emit('match:wave_cleared', { wave: this.currentWave, bonus: waveBonus + farmTotal });
 
+    // Doc 03 §3 Auto-Upgrade toggle on towers at wave end
+    for (const t of this.towers) {
+      if (t.autoUpgrade && t.level < 5) {
+        this.upgradeTower(t);
+      }
+    }
+
+    if (this.gameMode === 'rival') {
+      this.rivalWaveScore += Math.round(120 + this.currentWave * 25);
+      this.playerWaveScore += Math.round(140 + this.currentWave * 25);
+      EventBus.emit('match:rival_state', {
+        rivalHp: this.rivalHp,
+        rivalMaxHp: this.rivalMaxHp,
+        playerWaveScore: this.playerWaveScore,
+        rivalWaveScore: this.rivalWaveScore,
+      });
+    }
+
     if (this.isEndless) {
       if (this.currentWave > SaveManager.data.stats.highestEndlessWave) {
         SaveManager.data.stats.highestEndlessWave = this.currentWave;
       }
-      if (this.currentWave >= 50) SaveManager.unlockAchievement('endless_50');
+      if (this.currentWave >= 50) {
+        SaveManager.unlockAchievement('endless_50');
+        if (this.difficultyId === 'Insane') {
+          this.towers.forEach((t) => {
+            const own = SaveManager.data.owned[t.def.id];
+            if (own && own.variant === 'none') own.variant = 'bronze';
+          });
+        }
+      }
+      if (this.currentWave >= 75 && this.difficultyId === 'Insane') {
+        this.towers.forEach((t) => {
+          const own = SaveManager.data.owned[t.def.id];
+          if (own && own.variant !== 'gold' && own.variant !== 'rainbow') own.variant = 'silver';
+        });
+      }
+      if (this.currentWave >= 100 && this.difficultyId === 'Insane') {
+        this.towers.forEach((t) => {
+          const own = SaveManager.data.owned[t.def.id];
+          if (own && own.variant !== 'rainbow') own.variant = 'gold';
+        });
+      }
 
       if (this.currentWave % 10 === 0) {
         const seeds = 120;
@@ -1874,12 +2473,30 @@ export class MatchController {
       this.matchEnded = true;
       const diff = DIFFICULTIES[this.difficultyId];
       const seedMult = this.weather.activeDef?.seedsBonusMult ?? 1.0;
-      const earnedSeeds = Math.round(diff.clearRewardSeeds * seedMult);
+      const modMult = 1 + this.modifierEffects.seedBonusTotal;
+      const boostMult = SaveManager.getActiveBoosts().doubleSeeds ? 2.0 : 1.0;
+      const modeFlatBonus = this.gameMode === 'hourly' ? 250 : this.gameMode === 'rival' ? 350 : this.gameMode === 'story' ? 80 : 0;
+      const earnedSeeds =
+        this.gameMode === 'sandbox'
+          ? 0
+          : Math.round((diff.clearRewardSeeds * seedMult * modMult + modeFlatBonus) * boostMult);
 
-      SaveManager.addSeeds(earnedSeeds);
-      SaveManager.addPlayerXp(120 + this.totalWaves * 10);
-      SaveManager.data.stats.matchesWon++;
-      SaveManager.recordLeaderboard(this.mapDef.id, this.difficultyId, this.currentWave, this.matchElapsedSec, this.topSingleHit);
+      if (earnedSeeds > 0) SaveManager.addSeeds(earnedSeeds);
+      if (this.gameMode === 'hourly') {
+        SaveManager.addDewdrops(2);
+        SaveManager.data.hourlyStreak += 1;
+      }
+      if (this.gameMode === 'story' && this.activeStoryChapterId && !SaveManager.data.storyCleared.includes(this.activeStoryChapterId)) {
+        SaveManager.data.storyCleared.push(this.activeStoryChapterId);
+      }
+
+      if (this.gameMode !== 'sandbox') {
+        SaveManager.addPlayerXp(120 + this.totalWaves * 10);
+        SaveManager.data.stats.matchesWon++;
+        SaveManager.data.questGnomeXp += 150;
+        SaveManager.recordLeaderboard(this.mapDef.id, this.difficultyId, this.currentWave, this.matchElapsedSec, this.topSingleHit);
+        SaveManager.unlockNextDifficulty(this.mapDef.id, this.difficultyId);
+      }
 
       if (this.gameMode === 'boss_rush') {
         SaveManager.unlockAchievement('boss_slayer');
@@ -1902,7 +2519,6 @@ export class MatchController {
       }
       SaveManager.save();
 
-      // §14 End Screen MVP Tower Spotlight
       const mvp = [...this.towers].sort((a, b) => b.totalDamageDealt - a.totalDamageDealt)[0];
       if (mvp) {
         this.engine.cameraRig.focusPoint(mvp.position.x, mvp.position.z, 12);

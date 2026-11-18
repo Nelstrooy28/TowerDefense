@@ -890,3 +890,459 @@ body,
   z-index: 70;
   pointer-events: none;
 }
+
+/* =====================================================================
+   Specification v4 Garden UI Kit, Wooden Sign Hub, Modifiers & Drawer
+   All text >= 14px; zero horizontal overflow at 1366x768 & 1920x1080
+   ===================================================================== */
+
+.paper-panel {
+  background: linear-gradient(165deg, rgba(20, 34, 28, 0.96) 0%, rgba(15, 23, 32, 0.96) 100%);
+  border: 2px solid rgba(163, 230, 53, 0.42);
+  border-radius: 18px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.56), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.paper-input,
+.paper-select {
+  min-height: 38px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 2px solid rgba(134, 239, 172, 0.35);
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+}
+
+.paper-input:focus,
+.paper-select:focus {
+  border-color: #fde047;
+  box-shadow: 0 0 0 2px rgba(253, 224, 71, 0.25);
+}
+
+/* Garden Button Styles (§Rule 20: leaf, wood sign, seed pod) */
+.wood-sign-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 16px;
+  width: 100%;
+  border-radius: 12px;
+  border: 2px solid #b45309;
+  border-top-color: #fbbf24;
+  background: linear-gradient(180deg, #92400e 0%, #78350f 55%, #451a03 100%);
+  color: #fef3c7;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 800;
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 4px 0 #290e02, inset 0 1px 0 rgba(254, 243, 199, 0.28);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.14s ease, border-color 0.14s ease;
+}
+
+.wood-sign-btn:hover:not(:disabled) {
+  transform: translateX(4px) translateY(-1px);
+  filter: brightness(1.12);
+  border-color: #fde047;
+}
+
+.wood-sign-btn.active {
+  background: linear-gradient(180deg, #16a34a 0%, #15803d 60%, #14532d 100%);
+  border-color: #86efac;
+  color: #ffffff;
+  box-shadow: 0 4px 0 #052e16, 0 0 16px rgba(74, 222, 128, 0.35);
+}
+
+.leaf-tab-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.leaf-tab-btn {
+  min-height: 38px;
+  padding: 7px 14px;
+  border-radius: 18px 6px 18px 6px;
+  border: 2px solid rgba(134, 239, 172, 0.35);
+  background: linear-gradient(180deg, rgba(22, 101, 52, 0.72) 0%, rgba(20, 83, 45, 0.85) 100%);
+  color: #ecfccb;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.leaf-tab-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: #86efac;
+}
+
+.leaf-tab-btn.active {
+  background: linear-gradient(180deg, #4ade80 0%, #16a34a 100%);
+  border-color: #fef08a;
+  color: #052e16;
+  box-shadow: 0 4px 12px rgba(74, 222, 128, 0.35);
+}
+
+.seed-pod-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: 2px solid #fef08a;
+  background: linear-gradient(180deg, #84cc16 0%, #16a34a 65%, #15803d 100%);
+  color: #ffffff;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+  text-shadow: 0 2px 4px rgba(5, 46, 22, 0.7);
+  box-shadow: 0 5px 0 #14532d, 0 0 18px rgba(132, 204, 22, 0.4);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.14s ease;
+}
+
+.seed-pod-btn:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.02);
+  filter: brightness(1.08);
+}
+
+.seed-pod-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.badge-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+  border: 1px solid #ffffff;
+}
+
+.sold-out-stamp {
+  position: relative;
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 8px;
+  border: 2px solid #f43f5e;
+  color: #fda4af;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  transform: rotate(-4deg);
+}
+
+/* Hub v4 Layout (Wooden Sign Column + Living Garden Showcase + Right Play Wizard) */
+.hub-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px 1fr 560px;
+  gap: 16px;
+  align-items: center;
+  margin: 10px 0;
+  pointer-events: none;
+}
+
+.hub-signs-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.hub-gnome-card {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.88);
+  border: 2px solid rgba(253, 224, 71, 0.45);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gnome-track-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  overflow: hidden;
+}
+
+.gnome-track-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4ade80, #fde047);
+}
+
+.hub-stage-panel {
+  pointer-events: auto;
+  max-height: calc(100vh - 140px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.hub-wizard-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.mode-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mode-card {
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background: rgba(30, 41, 59, 0.85);
+  color: #f8fafc;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.mode-card:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(134, 239, 172, 0.65);
+}
+
+.mode-card.active {
+  border-color: #fde047;
+  background: rgba(22, 163, 74, 0.34);
+}
+
+.diff-pot-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.diff-pot-btn {
+  padding: 8px 6px;
+  border-radius: 14px 14px 10px 10px;
+  border: 2px solid rgba(217, 119, 6, 0.45);
+  background: linear-gradient(180deg, rgba(69, 26, 3, 0.78), rgba(30, 41, 59, 0.88));
+  color: #f8fafc;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.diff-pot-btn.active {
+  border-color: #fde047;
+  background: linear-gradient(180deg, rgba(22, 163, 74, 0.52), rgba(15, 23, 42, 0.92));
+}
+
+.diff-pot-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.modifier-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.modifier-cell {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.podium-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(253, 224, 71, 0.35);
+  font-size: 14px;
+  pointer-events: auto;
+}
+
+/* Pause Menu Board */
+.pause-board {
+  width: 440px;
+  max-width: 94vw;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+}
+
+/* In-Match v4 HUD Bars & Garden Manager Drawer */
+.hud-modifiers-bar {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: 58vw;
+  pointer-events: none;
+  z-index: 22;
+}
+
+.mod-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.86);
+  border: 1px solid rgba(253, 224, 71, 0.55);
+  color: #fde047;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.hud-mode-tip {
+  position: fixed;
+  top: 64px;
+  left: 16px;
+  max-width: 340px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #e2e8f0;
+  z-index: 22;
+  pointer-events: none;
+}
+
+.hud-rival-bar {
+  position: fixed;
+  top: 106px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 800;
+  pointer-events: none;
+  z-index: 22;
+}
+
+.hud-sandbox-bar {
+  position: fixed;
+  top: 112px;
+  left: 16px;
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 340px;
+  pointer-events: auto;
+  z-index: 26;
+}
+
+.garden-manager-panel {
+  position: fixed;
+  top: 108px;
+  left: 336px;
+  width: 340px;
+  max-width: 92vw;
+  max-height: calc(100vh - 280px);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  pointer-events: auto;
+  z-index: 28;
+}
+
+.gm-row {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.86);
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.gm-row.selected {
+  border-color: #fde047;
+  background: rgba(22, 163, 74, 0.3);
+}
+
+/* Responsive Breakpoints (1920x1080, 1366x768, Tablet, Mobile) */
+@media (max-width: 1440px) {
+  .hub-layout {
+    grid-template-columns: 245px 1fr 480px;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 1120px) {
+  .hub-layout {
+    grid-template-columns: 230px 1fr;
+  }
+  .hub-stage-panel {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 820px) {
+  .hub-layout {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+    pointer-events: auto;
+  }
+  .mode-card-grid,
+  .diff-pot-row,
+  .modifier-grid {
+    grid-template-columns: 1fr;
+  }
+  .garden-manager-panel {
+    left: 16px;
+  }
+}

@@ -21,6 +21,9 @@ const ENEMY_ICONS: Record<EnemyTypeId, string> = {
   vinewyrm_hydra: '🐍',
   magma_beetle_queen: '🌋',
   frost_moth_empress: '❄️',
+  pocket_mouse: '🐭',
+  glow_moth: '🧚',
+  ember_fly: '🔥',
 };
 
 const THREAT_COLORS: Record<string, string> = {

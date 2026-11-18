@@ -77,6 +77,18 @@ export interface QualitySettings {
   volumeUi: number; // 0..1
   textScale: number; // 100..140
   muted: boolean;
+  // v4 Settings tabs
+  autoSkipDefault?: boolean;
+  startSpeed?: 1 | 2 | 3;
+  showDamageNumbers?: boolean;
+  showRangeOnHover?: boolean;
+  autoScaler?: boolean;
+  bloomEnabled?: boolean;
+  shadowsEnabled?: boolean;
+  fpsCap?: 0 | 30 | 60 | 120;
+  muteWhenHidden?: boolean;
+  edgePan?: boolean;
+  invertOrbit?: boolean;
 }
 
 function isMobilePhone(): boolean {
@@ -98,6 +110,17 @@ class QualityManagerImpl {
     volumeUi: 0.8,
     textScale: 100,
     muted: false,
+    autoSkipDefault: false,
+    startSpeed: 1,
+    showDamageNumbers: true,
+    showRangeOnHover: true,
+    autoScaler: true,
+    bloomEnabled: true,
+    shadowsEnabled: true,
+    fpsCap: 0,
+    muteWhenHidden: true,
+    edgePan: false,
+    invertOrbit: false,
   };
 
   private slowFramesAccum = 0;

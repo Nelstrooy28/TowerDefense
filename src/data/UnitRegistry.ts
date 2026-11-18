@@ -1,6 +1,18 @@
 import type { RarityId } from './RarityConfig';
+import { ECONOMY_CONFIG } from './BalanceConfig';
 
-export type TerrainTag = 'GROUND' | 'CLIFF' | 'HYBRID';
+export type TerrainTag = 'GROUND' | 'CLIFF' | 'HYBRID' | 'PATH';
+export type UnitRoleCategory =
+  | 'Attacker'
+  | 'Splash'
+  | 'DoT'
+  | 'Control'
+  | 'Support'
+  | 'Farm'
+  | 'Trap'
+  | 'Roller'
+  | 'Spawner'
+  | 'Wall';
 export type ElementTag =
   | 'physical'
   | 'burn'
@@ -68,12 +80,23 @@ export interface UnitDef {
   canHitFlying: boolean;
   canHitBurrowed: boolean;
   isFarm?: boolean;
+  isCollectFarm?: boolean;
   isSupport?: boolean;
   isBeam?: boolean;
   isExplosive?: boolean;
   isMelee?: boolean;
   isPiercing?: boolean;
   isPoisonCloud?: boolean;
+  isTrap?: boolean;
+  isRoller?: boolean;
+  isSpawner?: boolean;
+  isWall?: boolean;
+  wallHpBase?: number;
+  wallHpMax?: number;
+  spawnHpBase?: number;
+  spawnHpMax?: number;
+  trapHitsBase?: number;
+  trapHitsMax?: number;
   ability?: ActiveAbilityDef;
   primaryColor: number;
   secondaryColor: number;
@@ -91,7 +114,7 @@ export function roundTo25(val: number): number {
   return Math.max(25, Math.round(val / 25) * 25);
 }
 
-export const UPGRADE_MULTS = [0, 0.85, 1.65, 3.2, 6.5, 13.5];
+export const UPGRADE_MULTS = ECONOMY_CONFIG.upgradeCostMultipliers;
 
 function buildLevels(
   cost: number,
@@ -316,7 +339,7 @@ export const UNITS: UnitDef[] = [
     cap: 4,
     footprintRadius: 0.88,
     terrain: 'GROUND',
-    dmgBase: 65,
+    dmgBase: 80,
     dmgMax: 680,
     cdBase: 2.2,
     cdMax: 1.35,
@@ -345,14 +368,14 @@ export const UNITS: UnitDef[] = [
       impact: 'Shockwave ring shader + grass flattens outward',
       lv5Extra: 'Rings become rainbow equalizer bars',
     },
-    levels: buildLevels(850, 65, 680, 2.2, 1.35, 9, 14, 1, 1, 9),
+    levels: buildLevels(850, 80, 680, 2.2, 1.35, 9, 14, 1, 1, 9),
   },
   {
     id: 'ice_buds',
     index: 7,
     name: 'Ice Buds',
     rarity: 'Legendary',
-    cost: 900,
+    cost: 800,
     cap: 4,
     footprintRadius: 0.82,
     terrain: 'HYBRID',
@@ -379,7 +402,7 @@ export const UNITS: UnitDef[] = [
       impact: 'Frost beam, frost decal spreads on ground, ice shard shatter',
       lv5Extra: 'Snowfall in its range circle',
     },
-    levels: buildLevels(900, 40, 390, 1.4, 0.85, 11, 17, 1, 1, 1.5),
+    levels: buildLevels(800, 40, 390, 1.4, 0.85, 11, 17, 1, 1, 1.5),
   },
   {
     id: 'speed_sprinkler',
@@ -440,7 +463,7 @@ export const UNITS: UnitDef[] = [
     projectilesBase: 1,
     projectilesMax: 1,
     splashRadius: 0,
-    roleSummary: 'Ramping beam up to 2.5× on same target (CLIFF or GROUND); Lv.5 Radar reveals Burrowers',
+    roleSummary: 'Ramping beam up to 2.0× over 4 s on same target (CLIFF or GROUND); Lv.5 Radar reveals Burrowers',
     elements: ['arcane'],
     canHitFlying: true,
     canHitBurrowed: false,
@@ -540,8 +563,8 @@ export const UNITS: UnitDef[] = [
     cap: 1,
     footprintRadius: 1.05,
     terrain: 'HYBRID',
-    dmgBase: 480,
-    dmgMax: 5800,
+    dmgBase: 400,
+    dmgMax: 4800,
     cdBase: 1.2,
     cdMax: 0.55,
     rangeBase: 16,
@@ -569,7 +592,7 @@ export const UNITS: UnitDef[] = [
       impact: 'Solar: fire nova. Frost: ice spikes. Arcane: jagged chain lightning',
       lv5Extra: 'Clock-hand halo, time-ripple distortion around it',
     },
-    levels: buildLevels(4200, 480, 5800, 1.2, 0.55, 16, 28, 1, 1, 3.0),
+    levels: buildLevels(4200, 400, 4800, 1.2, 0.55, 16, 28, 1, 1, 3.0),
   },
   // Spec v3 §7 New Units (13-15)
   {
@@ -681,12 +704,203 @@ export const UNITS: UnitDef[] = [
     },
     levels: buildLevels(1000, 0, 0, 2.0, 2.0, 8, 13, 0, 0, 0, false, true, 0.06, 0.15),
   },
+  // Spec v4 Doc 06 §1 New Tactical Unit Roles (16–20)
+  {
+    id: 'bramble_snare',
+    index: 16,
+    name: 'Bramble Snare',
+    rarity: 'Uncommon',
+    cost: 300,
+    cap: 6,
+    footprintRadius: 0.72,
+    terrain: 'PATH',
+    dmgBase: 18,
+    dmgMax: 160,
+    cdBase: 1.0,
+    cdMax: 0.75,
+    rangeBase: 1.8,
+    rangeMax: 2.5,
+    projectilesBase: 1,
+    projectilesMax: 1,
+    splashRadius: 1.8,
+    roleSummary: 'Placed ON the track. Pests stepping on thorns take 18→160 dmg/s & −25% speed (40→120 hits).',
+    elements: ['bleed'],
+    canHitFlying: false,
+    canHitBurrowed: true,
+    isTrap: true,
+    trapHitsBase: 40,
+    trapHitsMax: 120,
+    primaryColor: 0x15803d,
+    secondaryColor: 0x713f12,
+    accentColor: 0xbe123c,
+    signatureAnim: {
+      idle: 'Thorny coils twitch over soil bed',
+      attack: 'Thorns snap upward as pest steps over',
+      impact: 'Blood-thorn splinters & cracks as durability drops',
+      lv5Extra: 'Crimson rose blooms weave along spikes',
+    },
+    levels: buildLevels(300, 18, 160, 1.0, 0.75, 1.8, 2.5, 1, 1, 1.8),
+  },
+  {
+    id: 'garden_roller',
+    index: 17,
+    name: 'Garden Roller',
+    rarity: 'Rare',
+    cost: 650,
+    cap: 2,
+    footprintRadius: 0.85,
+    terrain: 'PATH',
+    dmgBase: 120,
+    dmgMax: 1400,
+    cdBase: 20.0,
+    cdMax: 20.0,
+    rangeBase: 2.0,
+    rangeMax: 2.4,
+    projectilesBase: 1,
+    projectilesMax: 1,
+    splashRadius: 2.0,
+    roleSummary: 'Placed ON path; rolls toward spawn at 2.5 u/s crushing bugs for 120→1,400 dmg. No sell refund.',
+    elements: ['heavy'],
+    canHitFlying: false,
+    canHitBurrowed: true,
+    isRoller: true,
+    primaryColor: 0xb45309,
+    secondaryColor: 0x475569,
+    accentColor: 0xfacc15,
+    signatureAnim: {
+      idle: 'Heavy iron drum spins forward',
+      attack: 'Bounces over stone bumps leaving striped track',
+      impact: 'Squashes pests into confetti + stone sparks',
+      lv5Extra: 'Golden spiked drum leaves fiery wheel tracks',
+    },
+    levels: buildLevels(650, 120, 1400, 20.0, 20.0, 2.0, 2.4, 1, 1, 2.0),
+  },
+  {
+    id: 'gnome_barracks',
+    index: 18,
+    name: 'Gnome Barracks',
+    rarity: 'Legendary',
+    cost: 1200,
+    cap: 2,
+    footprintRadius: 0.95,
+    terrain: 'GROUND',
+    dmgBase: 25,
+    dmgMax: 300,
+    cdBase: 6.0,
+    cdMax: 3.5,
+    rangeBase: 10,
+    rangeMax: 14,
+    projectilesBase: 1,
+    projectilesMax: 1,
+    splashRadius: 0,
+    roleSummary: 'Every 6→3.5 s dispatches a Gnome Soldier (150→1,800 HP, 25→300 dmg) marching up the path.',
+    elements: ['physical'],
+    canHitFlying: false,
+    canHitBurrowed: false,
+    isSpawner: true,
+    spawnHpBase: 150,
+    spawnHpMax: 1800,
+    primaryColor: 0xdc2626,
+    secondaryColor: 0x78350f,
+    accentColor: 0xfde047,
+    signatureAnim: {
+      idle: 'Chimney puffs cozy moss smoke',
+      attack: 'Door swings open as gnome hops onto path',
+      impact: 'Gnome swings shovel & poofs into leaves on KO',
+      lv5Extra: 'Gnomes wear gleaming knight helmets',
+    },
+    levels: buildLevels(1200, 25, 300, 6.0, 3.5, 10, 14, 1, 1, 0),
+  },
+  {
+    id: 'walnut_wall',
+    index: 19,
+    name: 'Walnut Wall',
+    rarity: 'Common',
+    cost: 150,
+    cap: 30,
+    footprintRadius: 0.78,
+    terrain: 'PATH',
+    dmgBase: 0,
+    dmgMax: 0,
+    cdBase: 1.0,
+    cdMax: 1.0,
+    rangeBase: 1.5,
+    rangeMax: 1.8,
+    projectilesBase: 0,
+    projectilesMax: 0,
+    splashRadius: 0,
+    roleSummary: 'Placed ON path. Halts non-boss bugs (800→9,000 HP) while they chew through.',
+    elements: ['heavy'],
+    canHitFlying: false,
+    canHitBurrowed: false,
+    isWall: true,
+    wallHpBase: 800,
+    wallHpMax: 9000,
+    primaryColor: 0x92400e,
+    secondaryColor: 0x451a03,
+    accentColor: 0x4ade80,
+    signatureAnim: {
+      idle: 'Sturdy walnut shell grins calmly; wobbles at low HP',
+      attack: 'Absorbs pest bites with flying shell crumbs',
+      impact: 'Visible shell cracks at 66% and 33% HP',
+      lv5Extra: 'Ironbound walnut shell with leafy plume',
+    },
+    levels: buildLevels(150, 0, 0, 1.0, 1.0, 1.5, 1.8, 0, 0, 0),
+  },
+  {
+    id: 'sunflower_producer',
+    index: 20,
+    name: 'Sunflower Collector',
+    rarity: 'Legendary',
+    cost: 700,
+    cap: 3,
+    footprintRadius: 0.82,
+    terrain: 'GROUND',
+    dmgBase: 0,
+    dmgMax: 0,
+    cdBase: 8.0,
+    cdMax: 6.5,
+    rangeBase: 4.5,
+    rangeMax: 9.0,
+    projectilesBase: 0,
+    projectilesMax: 0,
+    splashRadius: 0,
+    roleSummary: 'Collect Farm: drops bouncing Sun Coins every 8 s. Hover/tap for 100% value (50% auto after 4 s).',
+    elements: ['farm'],
+    canHitFlying: false,
+    canHitBurrowed: false,
+    isFarm: true,
+    isCollectFarm: true,
+    primaryColor: 0xfacc15,
+    secondaryColor: 0x16a34a,
+    accentColor: 0xfef08a,
+    signatureAnim: {
+      idle: 'Golden head turns cheerfully toward sun coins',
+      attack: 'Pops bright Sun Coin onto nearby grass',
+      impact: 'Magnet sparkle & chime when collected by cursor',
+      lv5Extra: 'Twin suns orbit petals',
+    },
+    levels: buildLevels(700, 0, 0, 8.0, 6.5, 4.5, 9.0, 0, 0, 0, true, false),
+  },
 ];
 
 export const UNIT_MAP: Record<string, UnitDef> = Object.fromEntries(UNITS.map((u) => [u.id, u]));
 
 export function getUnitById(id: string): UnitDef {
   return UNIT_MAP[id] ?? UNITS[0];
+}
+
+export function getUnitRoleCategory(u: UnitDef): UnitRoleCategory {
+  if (u.isWall) return 'Wall';
+  if (u.isRoller) return 'Roller';
+  if (u.isTrap) return 'Trap';
+  if (u.isSpawner) return 'Spawner';
+  if (u.isFarm) return 'Farm';
+  if (u.isSupport) return 'Support';
+  if (u.elements.includes('burn') || u.elements.includes('poison')) return 'DoT';
+  if (u.elements.includes('chill') || u.elements.includes('knockback')) return 'Control';
+  if (u.splashRadius >= 2.0) return 'Splash';
+  return 'Attacker';
 }
 
 export function getUpgradePreviewLabel(unit: UnitDef, nextLevel: number): string {

@@ -17,7 +17,11 @@ export type EnemyTypeId =
   // v3 §9 Map Bosses
   | 'vinewyrm_hydra'
   | 'magma_beetle_queen'
-  | 'frost_moth_empress';
+  | 'frost_moth_empress'
+  // v4 Doc 06 §5 New Pests
+  | 'pocket_mouse'
+  | 'glow_moth'
+  | 'ember_fly';
 
 export interface EnemyDef {
   id: EnemyTypeId;
@@ -32,6 +36,10 @@ export interface EnemyDef {
   chillResist: number;
   isMiniBoss: boolean;
   isBoss: boolean;
+  stealsCashPerWave?: number;
+  healAuraRadius?: number;
+  healAuraPct?: number;
+  revivesOnce?: boolean;
   bounty: number;
   baseDamage: number;
   scale: number;
@@ -375,7 +383,7 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     id: 'treant_overlord',
     name: 'Blighted Treant Overlord',
     appearsWave: 20,
-    baseHP: 65000,
+    baseHP: 24000,
     speed: 1.0,
     armorRatio: 0.3,
     isFlying: false,
@@ -386,7 +394,7 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     isBoss: true,
     bounty: 1500,
     baseDamage: 100,
-    scale: 2.75,
+    scale: 3.15,
     primaryColor: 0x3b0764,
     secondaryColor: 0x451a03,
     accentColor: 0xc084fc,
@@ -400,7 +408,7 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     id: 'vinewyrm_hydra',
     name: 'Vinewyrm Hydra',
     appearsWave: 25,
-    baseHP: 78000,
+    baseHP: 24000,
     speed: 0.95,
     armorRatio: 0.25,
     isFlying: false,
@@ -411,7 +419,7 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     isBoss: true,
     bounty: 1800,
     baseDamage: 100,
-    scale: 2.7,
+    scale: 3.1,
     primaryColor: 0x15803d,
     secondaryColor: 0x4c1d95,
     accentColor: 0x4ade80,
@@ -425,7 +433,7 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     id: 'magma_beetle_queen',
     name: 'Magma Beetle Queen',
     appearsWave: 30,
-    baseHP: 90000,
+    baseHP: 22500,
     speed: 0.9,
     armorRatio: 0.4,
     isFlying: false,
@@ -436,7 +444,7 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     isBoss: true,
     bounty: 2200,
     baseDamage: 100,
-    scale: 2.8,
+    scale: 3.2,
     primaryColor: 0x991b1b,
     secondaryColor: 0x1c1917,
     accentColor: 0xf97316,
@@ -450,7 +458,7 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     id: 'frost_moth_empress',
     name: 'Frost Moth Empress',
     appearsWave: 35,
-    baseHP: 82000,
+    baseHP: 28000,
     speed: 1.05,
     armorRatio: 0.25,
     isFlying: true,
@@ -461,7 +469,7 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     isBoss: true,
     bounty: 2000,
     baseDamage: 100,
-    scale: 2.65,
+    scale: 3.05,
     primaryColor: 0x0284c7,
     secondaryColor: 0xe0f2fe,
     accentColor: 0x7dd3fc,
@@ -471,12 +479,92 @@ export const ENEMIES: Record<EnemyTypeId, EnemyDef> = {
     traitSummary: 'Frosty Allotment FLYING Boss: Frost slow on towers, 3 s wing gust drift, splits at 25% HP',
     bestCounters: 'Ghost Pepper, Bamboo Archer, Laser Plant + Sunflower Beacon',
   },
+  pocket_mouse: {
+    id: 'pocket_mouse',
+    name: 'Pocket Mouse',
+    appearsWave: 6,
+    baseHP: 240,
+    speed: 4.2,
+    armorRatio: 0,
+    isFlying: false,
+    canBurrow: false,
+    canStunTowers: false,
+    chillResist: 0,
+    isMiniBoss: false,
+    isBoss: false,
+    stealsCashPerWave: 50,
+    bounty: 14,
+    baseDamage: 0,
+    scale: 0.85,
+    primaryColor: 0x9ca3af,
+    secondaryColor: 0xd97706,
+    accentColor: 0xfef08a,
+    colorblindSymbol: '💰',
+    deathDuration: 0.4,
+    deathVfxDesc: 'Drops stolen coin sack burst',
+    traitSummary: 'Sprint thief! Steals $50×wave cash if it reaches the base instead of HP.',
+    bestCounters: 'Walnut Wall, Bramble Snare, Cactus Striker',
+  },
+  glow_moth: {
+    id: 'glow_moth',
+    name: 'Glow Moth',
+    appearsWave: 17,
+    baseHP: 900,
+    speed: 3.0,
+    armorRatio: 0,
+    isFlying: true,
+    canBurrow: false,
+    canStunTowers: false,
+    chillResist: 0.25,
+    isMiniBoss: false,
+    isBoss: false,
+    healAuraRadius: 3.0,
+    healAuraPct: 0.03,
+    bounty: 36,
+    baseDamage: 6,
+    scale: 1.05,
+    primaryColor: 0x22c55e,
+    secondaryColor: 0x064e3b,
+    accentColor: 0x86efac,
+    colorblindSymbol: '✚',
+    deathDuration: 0.55,
+    deathVfxDesc: 'Soft green healing dust fade',
+    traitSummary: 'FLYING medic pest. Heals nearby bugs (radius 3) for 3% max HP/s.',
+    bestCounters: 'Bamboo Archer, Laser Plant, Chrono-Bloom',
+  },
+  ember_fly: {
+    id: 'ember_fly',
+    name: 'Ember Fly',
+    appearsWave: 22,
+    baseHP: 1400,
+    speed: 3.6,
+    armorRatio: 0.15,
+    isFlying: true,
+    canBurrow: false,
+    canStunTowers: false,
+    chillResist: 0.35,
+    isMiniBoss: false,
+    isBoss: false,
+    revivesOnce: true,
+    bounty: 56,
+    baseDamage: 8,
+    scale: 1.12,
+    primaryColor: 0xf97316,
+    secondaryColor: 0x450a0a,
+    accentColor: 0xfde047,
+    colorblindSymbol: '🔥',
+    deathDuration: 0.65,
+    deathVfxDesc: 'Turns to ash pile for 1.5 s, revives once at 50% HP',
+    traitSummary: 'FLYING phoenix pest. On first KO drops ash & revives 1.5 s later at 50% HP.',
+    bestCounters: 'Ice Buds (Chills ash), Laser Plant, Bamboo Archer',
+  },
 };
 
 export const ALL_ENEMY_IDS: EnemyTypeId[] = Object.keys(ENEMIES) as EnemyTypeId[];
 
 export function computeScaledEnemyHP(baseHP: number, wave: number, difficultyMult: number): number {
   const linearScale = 1 + 0.16 * Math.max(0, wave - 1);
-  const expScale = Math.pow(1.085, Math.max(0, wave - 15));
+  const effectiveExpWave = wave <= 30 ? Math.max(0, wave - 15) : 15 + (wave - 30) * 0.55;
+  const expScale = Math.pow(1.085, effectiveExpWave);
   return Math.round(baseHP * difficultyMult * linearScale * expScale);
 }

@@ -544,7 +544,7 @@ class ProceduralTexturesImpl {
       ctx.arc(54, 38, 5, 0, Math.PI * 2);
       ctx.arc(72, 34, 6, 0, Math.PI * 2);
       ctx.fill();
-    } else if (unit.id === 'sunflower_beacon') {
+    } else if (unit.id === 'sunflower_beacon' || unit.id === 'sunflower_producer') {
       ctx.fillStyle = primary;
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
@@ -555,6 +555,39 @@ class ProceduralTexturesImpl {
       ctx.fillStyle = secondary;
       ctx.beginPath();
       ctx.arc(64, 44, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else if (unit.id === 'bramble_snare') {
+      ctx.strokeStyle = primary;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(64, 52, 20, Math.PI, 0);
+      ctx.stroke();
+      ctx.fillStyle = accent;
+      for (let i = 0; i < 4; i++) {
+        ctx.fillRect(44 + i * 11, 34, 6, 16);
+      }
+    } else if (unit.id === 'garden_roller') {
+      ctx.fillStyle = secondary;
+      ctx.fillRect(36, 36, 56, 26);
+      ctx.strokeRect(36, 36, 56, 26);
+      ctx.fillStyle = accent;
+      ctx.fillRect(58, 36, 12, 26);
+    } else if (unit.id === 'gnome_barracks') {
+      ctx.fillStyle = secondary;
+      ctx.fillRect(42, 42, 44, 30);
+      ctx.fillStyle = primary;
+      ctx.beginPath();
+      ctx.moveTo(36, 44);
+      ctx.lineTo(64, 18);
+      ctx.lineTo(92, 44);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    } else if (unit.id === 'walnut_wall') {
+      ctx.fillStyle = primary;
+      ctx.beginPath();
+      ctx.ellipse(64, 48, 22, 28, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
     } else {

@@ -5,6 +5,8 @@ import { TRAITS, type TraitId } from '../data/TraitConfig';
 import { ENEMIES, type EnemyTypeId } from '../data/EnemyRegistry';
 import type { MapDef } from '../data/MapRegistry';
 import type { SoilSkinId } from '../core/SaveManager';
+import type { VariantId } from '../data/BalanceConfig';
+import { PropKit } from './props/PropKit';
 import {
   applyToonRimShader,
   createCelestialTraitShaderMaterial,
@@ -71,6 +73,8 @@ export interface MapSceneHandles {
   robins: THREE.Group[];
   spawnMarkers: THREE.Group[];
   rainbowArc: THREE.Mesh | null;
+  rotatingBridge?: THREE.Group;
+  baseStructure?: THREE.Group;
 }
 
 const GEO = {
@@ -134,7 +138,8 @@ class MeshFactoryImpl {
     rarity: RarityId,
     trait: TraitId,
     soilSkin: SoilSkinId = 'garden_loam',
-    isPrime = false
+    isPrime = false,
+    variant: VariantId = 'none'
   ): TowerRigRefs {
     const unit = getUnitById(unitId);
     const root = new THREE.Group();
@@ -389,22 +394,47 @@ class MeshFactoryImpl {
     headTurret.position.set(0, stemHeight + 0.18, 0);
     headTurret.userData.baseY = stemHeight + 0.18;
 
-    // 3. Unit-Specific Procedural Sculpture
-    const pColor = isGoldenTrait ? 0xfbbf24 : unit.primaryColor;
-    const sColor = isGoldenTrait ? 0xf59e0b : unit.secondaryColor;
-    const aColor = unit.accentColor;
+    // 3. Unit-Specific Procedural Sculpture (with Variant Sheen overrides Doc 06 §6)
+    const variantGold = variant === 'gold';
+    const variantSilver = variant === 'silver';
+    const variantBronze = variant === 'bronze';
+    const variantGlass = variant === 'glass';
+    const variantRainbow = variant === 'rainbow';
 
+    const pColor = isGoldenTrait || variantGold
+      ? 0xfbbf24
+      : variantSilver
+        ? 0xe2e8f0
+        : variantBronze
+          ? 0xd97706
+          : unit.primaryColor;
+    const sColor = isGoldenTrait || variantGold
+      ? 0xf59e0b
+      : variantSilver
+        ? 0x94a3b8
+        : variantBronze
+          ? 0x92400e
+          : unit.secondaryColor;
+    const aColor = variantRainbow ? 0xf472b6 : unit.accentColor;
+
+    const metallicBoost = variantGold || variantSilver || variantBronze || isGoldenTrait;
     const mainMat = makeMat(pColor, {
-      metalness: isGoldenTrait ? 0.85 : 0.15,
-      roughness: isGoldenTrait ? 0.2 : 0.45,
+      metalness: metallicBoost ? 0.85 : variantGlass ? 0.25 : 0.15,
+      roughness: metallicBoost ? 0.22 : variantGlass ? 0.12 : 0.45,
+      transparent: variantGlass,
+      opacity: variantGlass ? 0.72 : 1,
+      emissive: variantRainbow ? 0xa855f7 : 0x000000,
+      emissiveIntensity: variantRainbow ? 0.65 : 0,
     });
     const secMat = makeMat(sColor, {
-      metalness: isGoldenTrait ? 0.75 : 0.2,
-      roughness: isGoldenTrait ? 0.25 : 0.5,
+      metalness: metallicBoost ? 0.78 : 0.2,
+      roughness: metallicBoost ? 0.26 : 0.5,
+      transparent: variantGlass,
+      opacity: variantGlass ? 0.78 : 1,
     });
     const veinMat = makeMat(aColor, {
       emissive: aColor,
-      emissiveIntensity: level >= 5 ? 1.85 : level >= 3 ? 1.2 : 0.25,
+      emissiveIntensity: variantRainbow ? 1.8 : level >= 5 ? 1.85 : level >= 3 ? 1.2 : 0.25,
       roughness: 0.25,
     });
     emissiveParts.push(veinMat);
@@ -787,6 +817,74 @@ class MeshFactoryImpl {
       sunCore.scale.setScalar(0.32);
       sunCore.position.set(0, 0.36, 0.06);
       headTurret.add(sunCore);
+    } else if (id === 'bramble_snare') {
+      const matCoils = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.08, 6, 16), mainMat);
+      matCoils.rotation.x = Math.PI / 2;
+      matCoils.position.y = -0.35;
+      headTurret.add(matCoils);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const spike = new THREE.Mesh(GEO.cone, veinMat);
+        spike.scale.set(0.14, 0.42, 0.14);
+        spike.position.set(Math.cos(a) * 0.34, -0.22, Math.sin(a) * 0.34);
+        spike.rotation.z = -Math.cos(a) * 0.3;
+        spike.rotation.x = Math.sin(a) * 0.3;
+        headTurret.add(spike);
+      }
+    } else if (id === 'garden_roller') {
+      const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.88, 12), secMat);
+      drum.rotation.z = Math.PI / 2;
+      drum.position.y = 0.05;
+      drum.castShadow = true;
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.22, 12), veinMat);
+      band.rotation.z = Math.PI / 2;
+      band.position.y = 0.05;
+      const frame = new THREE.Mesh(GEO.box, mainMat);
+      frame.scale.set(0.95, 0.12, 0.45);
+      frame.position.set(0, 0.45, -0.1);
+      headTurret.add(drum, band, frame);
+    } else if (id === 'gnome_barracks') {
+      const cabin = new THREE.Mesh(GEO.box, secMat);
+      cabin.scale.set(0.85, 0.65, 0.78);
+      cabin.position.y = 0.1;
+      cabin.castShadow = true;
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(0.75, 0.62, 4), mainMat);
+      roof.rotation.y = Math.PI / 4;
+      roof.position.y = 0.72;
+      roof.castShadow = true;
+      const door = new THREE.Mesh(GEO.box, veinMat);
+      door.scale.set(0.28, 0.42, 0.08);
+      door.position.set(0, -0.02, 0.4);
+      headTurret.add(cabin, roof, door);
+    } else if (id === 'walnut_wall') {
+      const nut = new THREE.Mesh(GEO.sphere, mainMat);
+      nut.scale.set(0.92, 1.15, 0.84);
+      nut.position.y = 0.22;
+      nut.castShadow = true;
+      const seam = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.05, 6, 16), secMat);
+      seam.position.y = 0.22;
+      const brow = new THREE.Mesh(GEO.box, veinMat);
+      brow.scale.set(0.42, 0.1, 0.1);
+      brow.position.set(0, 0.36, 0.42);
+      headTurret.add(nut, seam, brow);
+    } else if (id === 'sunflower_producer') {
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.12, 12), secMat);
+      disc.rotation.x = Math.PI / 2;
+      disc.position.y = 0.34;
+      headTurret.add(disc);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const petal = new THREE.Mesh(GEO.sphere, mainMat);
+        petal.scale.set(0.16, 0.28, 0.08);
+        petal.position.set(Math.cos(a) * 0.42, 0.34 + Math.sin(a) * 0.42, 0);
+        petal.rotation.z = a - Math.PI / 2;
+        headTurret.add(petal);
+      }
+      const coinGem = new THREE.Mesh(GEO.octahedron, veinMat);
+      coinGem.scale.setScalar(0.22);
+      coinGem.position.set(0, 0.78, 0);
+      headTurret.add(coinGem);
+      orbiters.push(coinGem);
     } else {
       // Elemental Chrono-Bloom
       const dial = new THREE.Mesh(new THREE.CylinderGeometry(0.54, 0.54, 0.12, 16), mainMat);
@@ -877,45 +975,8 @@ class MeshFactoryImpl {
     orbiters: THREE.Object3D[],
     isCelestial: boolean
   ): void {
-    if (trait === 'Sprouting') {
-      const leaf = new THREE.Mesh(
-        GEO.sphere,
-        makeMat(0x4ade80, { emissive: 0x4ade80, emissiveIntensity: 0.9 })
-      );
-      leaf.scale.set(0.22, 0.07, 0.12);
-      leaf.position.set(0.45, 0.9, 0);
-      headTurret.add(leaf);
-      traitVisuals.push(leaf);
-    } else if (trait === 'Swift') {
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(0.66, 0.03, 6, 20),
-        makeMat(0x38bdf8, { emissive: 0x38bdf8, emissiveIntensity: 1.3 })
-      );
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = 0.14;
-      basePot.add(ring);
-      orbiters.push(ring);
-    } else if (trait === 'Thorny') {
-      const thornMat = makeMat(0xf43f5e, { emissive: 0x991b1b, emissiveIntensity: 0.6 });
-      for (let i = 0; i < 8; i++) {
-        const thorn = new THREE.Mesh(GEO.cone, thornMat);
-        thorn.scale.set(0.08, 0.22, 0.08);
-        const a = (i / 8) * Math.PI * 2;
-        thorn.position.set(Math.cos(a) * 0.58, 0.16, Math.sin(a) * 0.58);
-        thorn.rotation.z = -Math.cos(a) * 1.1;
-        thorn.rotation.x = Math.sin(a) * 1.1;
-        basePot.add(thorn);
-      }
-    } else if (trait === 'Sniper') {
-      const laserLine = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.015, 0.015, 2.2, 6),
-        new THREE.MeshBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.85 })
-      );
-      laserLine.rotation.x = Math.PI / 2;
-      laserLine.position.set(0, 0.2, 1.2);
-      headTurret.add(laserLine);
-      traitVisuals.push(laserLine);
-    } else if (isCelestial) {
+    const def = TRAITS[trait];
+    if (isCelestial || trait === 'Celestial') {
       const starShell = new THREE.Mesh(
         new THREE.SphereGeometry(0.76, 12, 10),
         createCelestialTraitShaderMaterial()
@@ -930,6 +991,58 @@ class MeshFactoryImpl {
       miniStar.position.set(0.68, 0.65, 0);
       headTurret.add(miniStar);
       orbiters.push(miniStar);
+    } else if (def.tier === 'Legendary' || trait === 'Ironbark') {
+      const rune = new THREE.Mesh(
+        new THREE.TorusGeometry(0.68, 0.04, 6, 20),
+        makeMat(0xfbbf24, { emissive: 0xf59e0b, emissiveIntensity: 1.45 })
+      );
+      rune.rotation.x = Math.PI / 2;
+      rune.position.y = 0.14;
+      basePot.add(rune);
+      orbiters.push(rune);
+      if (trait === 'Bullseye') {
+        const laserLine = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.015, 0.015, 2.2, 6),
+          new THREE.MeshBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.85 })
+        );
+        laserLine.rotation.x = Math.PI / 2;
+        laserLine.position.set(0, 0.2, 1.2);
+        headTurret.add(laserLine);
+        traitVisuals.push(laserLine);
+      }
+    } else if (trait.startsWith('Swift')) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.64, 0.03, 6, 20),
+        makeMat(0x38bdf8, { emissive: 0x38bdf8, emissiveIntensity: 1.1 })
+      );
+      ring.rotation.x = Math.PI / 2;
+      ring.position.y = 0.14;
+      basePot.add(ring);
+      orbiters.push(ring);
+    } else if (trait.startsWith('Mighty')) {
+      const thornMat = makeMat(0xf43f5e, { emissive: 0x991b1b, emissiveIntensity: 0.6 });
+      const count = def.tier === 'III' ? 8 : 5;
+      for (let i = 0; i < count; i++) {
+        const thorn = new THREE.Mesh(GEO.cone, thornMat);
+        thorn.scale.set(0.08, 0.2, 0.08);
+        const a = (i / count) * Math.PI * 2;
+        thorn.position.set(Math.cos(a) * 0.56, 0.16, Math.sin(a) * 0.56);
+        thorn.rotation.z = -Math.cos(a) * 1.1;
+        thorn.rotation.x = Math.sin(a) * 1.1;
+        basePot.add(thorn);
+      }
+    } else {
+      const leafCount = def.tier === 'III' ? 3 : def.tier === 'II' ? 2 : 1;
+      for (let i = 0; i < leafCount; i++) {
+        const leaf = new THREE.Mesh(
+          GEO.sphere,
+          makeMat(0x4ade80, { emissive: 0x4ade80, emissiveIntensity: def.tier === 'I' ? 0.45 : 0.9 })
+        );
+        leaf.scale.set(0.2, 0.07, 0.12);
+        leaf.position.set(0.4 + i * 0.12, 0.85 + i * 0.08, 0);
+        headTurret.add(leaf);
+        traitVisuals.push(leaf);
+      }
     }
   }
 
@@ -1199,6 +1312,52 @@ class MeshFactoryImpl {
         bodyGroup.add(leg);
         legs.push(leg);
       }
+    } else if (type === 'pocket_mouse') {
+      const body = new THREE.Mesh(GEO.lowSphere, mainMat);
+      body.scale.set(0.55, 0.42, 0.78);
+      body.position.y = 0.28;
+      const sack = new THREE.Mesh(GEO.sphere, secMat);
+      sack.scale.set(0.45, 0.45, 0.45);
+      sack.position.set(0, 0.48, -0.25);
+      const coin = new THREE.Mesh(GEO.cylinder, accMat);
+      coin.scale.set(0.18, 0.06, 0.18);
+      coin.position.set(0.15, 0.72, -0.22);
+      bodyGroup.add(body, sack, coin);
+      for (const sx of [-0.18, 0.18]) {
+        const ear = new THREE.Mesh(GEO.sphere, accMat);
+        ear.scale.set(0.18, 0.2, 0.08);
+        ear.position.set(sx, 0.52, 0.34);
+        bodyGroup.add(ear);
+      }
+    } else if (type === 'glow_moth') {
+      const body = new THREE.Mesh(GEO.lowSphere, secMat);
+      body.scale.set(0.38, 0.38, 0.85);
+      body.position.y = 1.45;
+      bodyGroup.add(body);
+      const aura = new THREE.Mesh(new THREE.TorusGeometry(0.65, 0.04, 6, 18), accMat);
+      aura.rotation.x = Math.PI / 2;
+      aura.position.y = 0.2;
+      bodyGroup.add(aura);
+      for (const sx of [-0.52, 0.52]) {
+        const wing = new THREE.Mesh(GEO.sphere, mainMat);
+        wing.scale.set(0.82, 0.08, 0.55);
+        wing.position.set(sx, 1.52, 0);
+        bodyGroup.add(wing);
+        wings.push(wing);
+      }
+    } else if (type === 'ember_fly') {
+      const body = new THREE.Mesh(GEO.lowSphere, secMat);
+      body.scale.set(0.45, 0.42, 0.82);
+      body.position.y = 1.45;
+      bodyGroup.add(body);
+      for (const sx of [-0.46, 0.46]) {
+        const wing = new THREE.Mesh(GEO.plane, accMat);
+        wing.scale.set(0.85, 0.42, 1);
+        wing.rotation.x = -Math.PI / 2;
+        wing.position.set(sx, 1.62, 0);
+        bodyGroup.add(wing);
+        wings.push(wing);
+      }
     } else {
       // Blighted Treant Overlord (Boss)
       const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.8, 2.0, 10), secMat);
@@ -1312,131 +1471,90 @@ class MeshFactoryImpl {
     const spawnMarkers: THREE.Group[] = [];
     let waveFlower: THREE.Group | null = null;
     let rainbowArc: THREE.Mesh | null = null;
+    let rotatingBridge: THREE.Group | undefined;
 
-    const size = map.boundsHalfSize * 2 + 8;
-    const groundGeo = new THREE.PlaneGeometry(size, size);
-    groundGeo.rotateX(-Math.PI / 2);
-    const groundMat = makeMat(map.groundColor, { roughness: 0.9, metalness: 0.0, rim: false });
-    const groundMesh = new THREE.Mesh(groundGeo, groundMat);
-    groundMesh.receiveShadow = true;
-    groundMesh.name = 'ground';
-    group.add(groundMesh);
+    // 1. Floating Diorama Plinth with cross-section layers (AGENTS Rule 19, Doc 05 §2)
+    const plinth = PropKit.buildDioramaPlinth(map.layout.size.w, map.layout.size.d, map.layout.palette);
+    group.add(plinth);
+    const groundMesh = plinth.getObjectByName('ground') as THREE.Mesh;
 
+    // 2. Three Height Zones
+    for (const hz of map.layout.heightZones) {
+      if (hz.style !== 'pond' && hz.style !== 'lava_pool') {
+        group.add(PropKit.buildHeightZone(hz, map.layout.palette));
+      }
+    }
+
+    // 3. Splines & Styled Paths via PropKit
     const splines: THREE.CatmullRomCurve3[] = map.paths.map((pts) => {
       const vecs = pts.map(([x, z]) => new THREE.Vector3(x, 0.04, z));
       return new THREE.CatmullRomCurve3(vecs, false, 'catmullrom', 0.45);
     });
 
-    const trackMat = makeMat(map.trackColor, { roughness: 0.85, rim: false });
-    const edgeMat = makeMat(map.trackEdgeColor, {
-      roughness: 0.6,
-      emissive:
-        map.id === 'enchanted_jungle'
-          ? 0x0ea5e9
-          : map.id === 'volcano_greenhouse'
-            ? 0xea580c
-            : 0x000000,
-      emissiveIntensity: map.id === 'sunny_backyard' || map.id === 'frosty_allotment' ? 0 : 0.35,
-      rim: false,
-    });
-
     for (const spline of splines) {
-      const trackGroup = this.buildTrackRibbon(spline, map.trackHalfWidth, 110, trackMat, edgeMat);
-      group.add(trackGroup);
+      const styledPath = PropKit.buildStyledPath(
+        spline,
+        map.trackHalfWidth,
+        map.layout.pathStyle,
+        map.layout.palette
+      );
+      group.add(styledPath);
 
-      // §6.1 Map-specific Spawn Entrance Markers
       const startPt = spline.getPointAt(0);
-      const spawnGrp = new THREE.Group();
-      spawnGrp.position.set(startPt.x, 0, startPt.z);
-
-      if (map.id === 'sunny_backyard') {
-        const molehill = new THREE.Mesh(
-          new THREE.ConeGeometry(1.5, 0.95, 12),
-          makeMat(0x573b26, { roughness: 0.95 })
-        );
-        molehill.position.y = 0.45;
-        spawnGrp.add(molehill);
-      } else if (map.id === 'frosty_allotment') {
-        const drift = new THREE.Mesh(
-          new THREE.SphereGeometry(1.4, 12, 8),
-          makeMat(0xf8fafc, { roughness: 0.85 })
-        );
-        drift.scale.set(1.2, 0.65, 1.2);
-        drift.position.y = 0.25;
-        spawnGrp.add(drift);
-      } else if (map.id === 'volcano_greenhouse') {
-        const crackPortal = new THREE.Mesh(
-          new THREE.CircleGeometry(1.3, 12),
-          makeMat(0xf97316, { emissive: 0xea580c, emissiveIntensity: 1.25 })
-        );
-        crackPortal.rotation.x = -Math.PI / 2;
-        crackPortal.position.y = 0.06;
-        spawnGrp.add(crackPortal);
-      } else {
-        const portal = new THREE.Mesh(
-          new THREE.TorusGeometry(1.3, 0.18, 8, 20),
-          makeMat(0x7c3aed, { emissive: 0x7c3aed, emissiveIntensity: 1.25 })
-        );
-        portal.position.y = 1.35;
-        portal.lookAt(spline.getPointAt(0.04).x, 1.35, spline.getPointAt(0.04).z);
-        spawnGrp.add(portal);
-      }
-
-      group.add(spawnGrp);
-      spawnMarkers.push(spawnGrp);
+      const lookAtPt = spline.getPointAt(0.05);
+      const marker = PropKit.buildSpawnMarker(map.layout.spawnStyle, startPt.x, startPt.z, lookAtPt);
+      group.add(marker);
+      spawnMarkers.push(marker);
     }
 
-    // End Bastion Gazebo
+    // 4. Base Structure (visibly reflects base HP via guardian pods)
     const endPt = splines[0].getPointAt(1);
-    const bastion = new THREE.Group();
-    bastion.position.set(endPt.x, 0, endPt.z);
-    const gazeboBase = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.8, 2.0, 0.4, 8),
-      makeMat(0xf1f5f9, { roughness: 0.6 })
-    );
-    gazeboBase.position.y = 0.2;
-    const crystalHeart = new THREE.Mesh(
-      GEO.octahedron,
-      makeMat(0x4ade80, { emissive: 0x22c55e, emissiveIntensity: 1.35 })
-    );
-    crystalHeart.scale.set(0.85, 1.15, 0.85);
-    crystalHeart.position.y = 1.4;
-    bastion.add(gazeboBase, crystalHeart);
-    group.add(bastion);
+    const baseStructure = PropKit.buildBaseStructure(map.layout.baseStyle, endPt.x, endPt.z);
+    group.add(baseStructure);
 
-    // Cliff Pillars
+    // 5. Map Landmark
+    group.add(PropKit.buildLandmark(map.layout.landmark.style, map.layout.landmark.at[0], map.layout.landmark.at[1]));
+
+    // 6. Cliff Pillars (stone outcrops with glowing placement rune ring)
     const cliffMat = makeMat(
       map.id === 'volcano_greenhouse' ? 0x1e1b1e : map.id === 'frosty_allotment' ? 0x94a3b8 : 0x64748b,
       { roughness: 0.78 }
     );
+    const runeMat = makeMat(map.layout.palette.accent, {
+      emissive: map.layout.palette.accent,
+      emissiveIntensity: 0.35,
+    });
     for (const c of map.cliffs) {
       const cliff = new THREE.Mesh(
-        new THREE.CylinderGeometry(c.radius, c.radius * 1.18, c.height, 10),
+        new THREE.CylinderGeometry(c.radius, c.radius * 1.18, c.height, 9),
         cliffMat
       );
       cliff.position.set(c.x, c.height * 0.5, c.z);
       cliff.castShadow = true;
       cliff.receiveShadow = true;
       cliff.userData = { isCliff: true, cliffRadius: c.radius, cliffTopY: c.height };
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(c.radius * 0.85, 0.06, 6, 18), runeMat);
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = c.height * 0.5 + 0.02;
+      cliff.add(rim);
       group.add(cliff);
       cliffMeshes.push(cliff);
     }
 
-    // Pond with animated Water Shader (or Frozen Ice for Frosty Allotment)
+    // 7. Animated Pond / Lava Pool
     const waterMat = createWaterShaderMaterial(
       map.id === 'volcano_greenhouse'
         ? 0x9a3412
         : map.pond.frozen
           ? 0x93c5fd
-          : 0x0284c7,
+          : map.layout.palette.water,
       map.id === 'volcano_greenhouse'
         ? 0xf97316
         : map.pond.frozen
           ? 0xe0f2fe
           : 0x38bdf8
     );
-    const pondGeo = new THREE.CircleGeometry(1, 24);
-    const pondMesh = new THREE.Mesh(pondGeo, waterMat);
+    const pondMesh = new THREE.Mesh(new THREE.CircleGeometry(1, 24), waterMat);
     pondMesh.rotation.x = -Math.PI / 2;
     pondMesh.scale.set(map.pond.radiusX, map.pond.radiusZ, 1);
     pondMesh.position.set(map.pond.x, 0.03, map.pond.z);
@@ -1444,12 +1562,17 @@ class MeshFactoryImpl {
 
     const pondRim = new THREE.Mesh(
       new THREE.TorusGeometry(1, 0.14, 8, 24),
-      makeMat(0x78716c, { roughness: 0.85 })
+      makeMat(map.layout.palette.soil, { roughness: 0.85 })
     );
     pondRim.rotation.x = Math.PI / 2;
     pondRim.scale.set(map.pond.radiusX, map.pond.radiusZ, 1);
-    pondRim.position.set(map.pond.x, 0.06, map.pond.z);
+    pondRim.position.set(map.pond.x, 0.05, map.pond.z);
     group.add(pondRim);
+
+    // 8. Seeded Prop Clusters (3–7 grouped props from PropKit)
+    for (const cluster of map.layout.clusters) {
+      group.add(PropKit.buildClusterProps(cluster, wobbleProps, pollenFlowers));
+    }
 
     // Rainbow Arc (§11 hidden unless Rainbow weather active)
     rainbowArc = new THREE.Mesh(
@@ -1466,54 +1589,11 @@ class MeshFactoryImpl {
     rainbowArc.visible = false;
     group.add(rainbowArc);
 
-    // Wooden Picket Fences
-    const fenceMat = makeMat(
-      map.id === 'sunny_backyard' ? 0xf8fafc : map.id === 'frosty_allotment' ? 0x92400e : 0x573b26,
-      { roughness: 0.75 }
-    );
-    const b = map.boundsHalfSize - 1.2;
-    for (let i = -b; i <= b; i += 2.6) {
-      for (const side of [-b, b]) {
-        const post = new THREE.Mesh(GEO.box, fenceMat);
-        post.scale.set(0.28, 1.3, 0.28);
-        post.position.set(i, 0.65, side);
-        post.castShadow = true;
-        group.add(post);
-        wobbleProps.push(post);
-      }
-    }
-
-    // Mossy Garden Boulders & Wildflower Clusters
-    const bushMat = makeMat(map.id === 'frosty_allotment' ? 0xbae6fd : 0x16a34a, { roughness: 0.85 });
-    const rockDecoMat = makeMat(0x64748b, { roughness: 0.88 });
-    const flowerMat = makeMat(0xfacc15, { emissive: 0xfde047, emissiveIntensity: 0.25 });
-    const decoCorners: Array<[number, number]> = [
-      [-16, -16],
-      [16, -16],
-      [-16, 16],
-      [16, 16],
-    ];
-    for (const [dx, dz] of decoCorners) {
-      const gardenCluster = new THREE.Group();
-      gardenCluster.position.set(dx, 0, dz);
-      const bush = new THREE.Mesh(GEO.lowSphere, bushMat);
-      bush.scale.set(1.8, 0.9, 1.8);
-      bush.position.y = 0.4;
-      bush.castShadow = true;
-      const boulder = new THREE.Mesh(new THREE.DodecahedronGeometry(0.65, 0), rockDecoMat);
-      boulder.position.set(0.85, 0.35, 0.45);
-      boulder.castShadow = true;
-      const flower = new THREE.Mesh(GEO.sphere, flowerMat);
-      flower.scale.set(0.8, 0.45, 0.8);
-      flower.position.y = 0.95;
-      gardenCluster.add(bush, boulder, flower);
-      group.add(gardenCluster);
-      wobbleProps.push(gardenCluster);
-      pollenFlowers.push(flower);
-    }
-
-    // Butterflies
-    const butterflyMat = makeMat(0xfbbf24, { emissive: 0xfde047, emissiveIntensity: 0.35 });
+    // Butterflies / Dragonflies
+    const butterflyMat = makeMat(map.layout.palette.accent, {
+      emissive: map.layout.palette.accent,
+      emissiveIntensity: 0.35,
+    });
     for (let i = 0; i < 6; i++) {
       const bf = new THREE.Group();
       const wingL = new THREE.Mesh(GEO.plane, butterflyMat);
@@ -1550,7 +1630,6 @@ class MeshFactoryImpl {
       sleepingCat.add(catBody, catHead);
       group.add(sleepingCat);
 
-      // §10.2 Garden Gnome statues that turn heads to watch the boss
       for (const [gx, gz] of [[-14, -14], [14, 15]]) {
         const gnome = new THREE.Group();
         gnome.position.set(gx, 0, gz);
@@ -1577,7 +1656,7 @@ class MeshFactoryImpl {
       group.add(lawnmower);
     } else if (map.id === 'enchanted_jungle') {
       const mushStemMat = makeMat(0xe2e8f0, { roughness: 0.7 });
-      const mushCapMat = makeMat(0x22d3ee, { emissive: 0x06b6d4, emissiveIntensity: 0.9 });
+      const mushCapMat = makeMat(0x22d3ee, { emissive: 0x06b6d4, emissiveIntensity: 0.38 });
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
         const r = 13 + (i % 2) * 3;
@@ -1591,10 +1670,6 @@ class MeshFactoryImpl {
         group.add(stem, cap);
         mushrooms.push(cap);
       }
-      const bridge = new THREE.Mesh(GEO.box, makeMat(0x64748b, { roughness: 0.85 }));
-      bridge.scale.set(8.5, 0.25, 3.4);
-      bridge.position.set(3.5, 0.1, 0);
-      group.add(bridge);
       for (let i = 0; i < 4; i++) {
         const lanternMat = makeMat(0xfbbf24, { emissive: 0xfbbf24, emissiveIntensity: 0.1 });
         const lantern = new THREE.Mesh(GEO.octahedron, lanternMat);
@@ -1603,7 +1678,6 @@ class MeshFactoryImpl {
         group.add(lantern);
         bridgeLanterns.push(lantern);
       }
-      // §10.2 Hanging vines + Giant flower that opens on wave clear
       const vineMat = makeMat(0x16a34a);
       for (let i = 0; i < 5; i++) {
         const vine = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 3.2, 6), vineMat);
@@ -1613,7 +1687,7 @@ class MeshFactoryImpl {
       }
       waveFlower = new THREE.Group();
       waveFlower.position.set(-14, 0.4, 0);
-      const wfMat = makeMat(0xe879f9, { emissive: 0xc084fc, emissiveIntensity: 0.85 });
+      const wfMat = makeMat(0xe879f9, { emissive: 0xc084fc, emissiveIntensity: 0.38 });
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2;
         const p = new THREE.Mesh(GEO.sphere, wfMat);
@@ -1630,7 +1704,7 @@ class MeshFactoryImpl {
         arch.rotation.y = (i / 4) * Math.PI;
         group.add(arch);
       }
-      const crackMat = makeMat(0xf97316, { emissive: 0xea580c, emissiveIntensity: 1.15 });
+      const crackMat = makeMat(0xf97316, { emissive: 0xea580c, emissiveIntensity: 0.38 });
       for (let i = 0; i < 6; i++) {
         const crack = new THREE.Mesh(GEO.box, crackMat);
         crack.scale.set(2.5, 0.08, 0.08);
@@ -1640,8 +1714,7 @@ class MeshFactoryImpl {
         group.add(crack);
         glassCracks.push(crack);
       }
-      // §10.2 Popping lava bubbles in magma pond
-      const bubMat = makeMat(0xfde047, { emissive: 0xf97316, emissiveIntensity: 1.5 });
+      const bubMat = makeMat(0xfde047, { emissive: 0xf97316, emissiveIntensity: 0.4 });
       for (let i = 0; i < 4; i++) {
         const bub = new THREE.Mesh(GEO.sphere, bubMat);
         bub.scale.setScalar(0.32);
@@ -1650,36 +1723,7 @@ class MeshFactoryImpl {
         lavaBubbles.push(bub);
       }
     } else if (map.id === 'frosty_allotment') {
-      // §10.1 Raised timber beds, Snowman, Greenhouse, Hopping Robins
-      const timberMat = makeMat(0x78350f, { roughness: 0.85 });
-      const soilSnowMat = makeMat(0xf1f5f9, { roughness: 0.9 });
-      for (const [bx, bz] of [[-14, -15], [14, -15], [-14, 15]]) {
-        const bed = new THREE.Mesh(GEO.box, timberMat);
-        bed.scale.set(4.5, 0.65, 2.4);
-        bed.position.set(bx, 0.32, bz);
-        bed.castShadow = true;
-        const snowTop = new THREE.Mesh(GEO.box, soilSnowMat);
-        snowTop.scale.set(4.2, 0.15, 2.1);
-        snowTop.position.set(bx, 0.68, bz);
-        group.add(bed, snowTop);
-      }
-      // Snowman
-      const snowman = new THREE.Group();
-      snowman.position.set(14, 0, 14);
-      const s1 = new THREE.Mesh(GEO.sphere, soilSnowMat);
-      s1.scale.setScalar(1.3);
-      s1.position.y = 0.6;
-      const s2 = new THREE.Mesh(GEO.sphere, soilSnowMat);
-      s2.scale.setScalar(0.95);
-      s2.position.y = 1.45;
-      const nose = new THREE.Mesh(GEO.cone, makeMat(0xf97316));
-      nose.scale.set(0.18, 0.42, 0.18);
-      nose.rotation.x = Math.PI / 2;
-      nose.position.set(0, 1.48, 0.52);
-      snowman.add(s1, s2, nose);
-      group.add(snowman);
-
-      // Hopping Robins
+      const b = map.boundsHalfSize - 1.5;
       for (let i = 0; i < 4; i++) {
         const robin = new THREE.Group();
         const rBody = new THREE.Mesh(GEO.sphere, makeMat(0x78350f));
@@ -1692,6 +1736,18 @@ class MeshFactoryImpl {
         group.add(robin);
         robins.push(robin);
       }
+    } else if (map.id === 'zen_garden') {
+      rotatingBridge = new THREE.Group();
+      rotatingBridge.position.set(0, 0.18, 0);
+      const deck = new THREE.Mesh(GEO.box, makeMat(0xdc2626, { roughness: 0.55 }));
+      deck.scale.set(5.4, 0.24, 2.6);
+      const railL = new THREE.Mesh(GEO.box, makeMat(0x991b1b));
+      railL.scale.set(5.4, 0.35, 0.14);
+      railL.position.set(0, 0.3, -1.25);
+      const railR = railL.clone();
+      railR.position.set(0, 0.3, 1.25);
+      rotatingBridge.add(deck, railL, railR);
+      group.add(rotatingBridge);
     }
 
     return {
@@ -1716,73 +1772,9 @@ class MeshFactoryImpl {
       robins,
       spawnMarkers,
       rainbowArc,
+      rotatingBridge,
+      baseStructure,
     };
-  }
-
-  private buildTrackRibbon(
-    spline: THREE.CatmullRomCurve3,
-    halfWidth: number,
-    segments: number,
-    mat: THREE.Material,
-    edgeMat: THREE.Material
-  ): THREE.Group {
-    const g = new THREE.Group();
-    const positions: number[] = [];
-    const normals: number[] = [];
-    const indices: number[] = [];
-
-    const edgePositions: number[] = [];
-    const edgeNormals: number[] = [];
-    const edgeIndices: number[] = [];
-
-    const up = new THREE.Vector3(0, 1, 0);
-    const tangent = new THREE.Vector3();
-    const side = new THREE.Vector3();
-
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const pt = spline.getPointAt(t);
-      spline.getTangentAt(t, tangent).normalize();
-      side.crossVectors(up, tangent).normalize();
-
-      const lx = pt.x - side.x * halfWidth;
-      const lz = pt.z - side.z * halfWidth;
-      const rx = pt.x + side.x * halfWidth;
-      const rz = pt.z + side.z * halfWidth;
-
-      positions.push(lx, 0.05, lz, rx, 0.05, rz);
-      normals.push(0, 1, 0, 0, 1, 0);
-
-      const elx = pt.x - side.x * (halfWidth + 0.16);
-      const elz = pt.z - side.z * (halfWidth + 0.16);
-      const erx = pt.x + side.x * (halfWidth + 0.16);
-      const erz = pt.z + side.z * (halfWidth + 0.16);
-      edgePositions.push(elx, 0.03, elz, erx, 0.03, erz);
-      edgeNormals.push(0, 1, 0, 0, 1, 0);
-
-      if (i < segments) {
-        const base = i * 2;
-        indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
-        edgeIndices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3);
-      }
-    }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    geo.setIndex(indices);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.receiveShadow = true;
-
-    const edgeGeo = new THREE.BufferGeometry();
-    edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
-    edgeGeo.setAttribute('normal', new THREE.Float32BufferAttribute(edgeNormals, 3));
-    edgeGeo.setIndex(edgeIndices);
-    const edgeMesh = new THREE.Mesh(edgeGeo, edgeMat);
-    edgeMesh.receiveShadow = true;
-
-    g.add(edgeMesh, mesh);
-    return g;
   }
 
   public buildSeedPodMesh(isEnchanted: boolean): THREE.Group {

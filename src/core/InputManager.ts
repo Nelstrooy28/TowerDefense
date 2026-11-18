@@ -134,7 +134,7 @@ export class InputManager {
         return;
       }
       const unit = getUnitById(unitId);
-      const rig = MeshFactory.buildTowerRig(unitId, 0, unit.rarity, 'Sprouting', 'garden_loam');
+      const rig = MeshFactory.buildTowerRig(unitId, 0, unit.rarity, 'Keen I', 'garden_loam');
       rig.root.traverse((obj) => {
         if ((obj as THREE.Mesh).isMesh) {
           (obj as THREE.Mesh).material = this.ghostMat;
@@ -193,8 +193,12 @@ export class InputManager {
 
   private bindEvents(): void {
     this.canvas.addEventListener('pointermove', (e) => {
-      if (!this.match.inMatch || this.activeSlotIndex === null || e.pointerType === 'touch') return;
-      this.updatePreviewAtClientPos(e.clientX, e.clientY);
+      if (!this.match.inMatch || e.pointerType === 'touch') return;
+      const pt = this.raycastGroundOrCliff(e.clientX, e.clientY);
+      if (pt) this.match.collectSunCoinsNearPoint(pt.x, pt.z, 2.2);
+      if (this.activeSlotIndex !== null) {
+        this.updatePreviewAtClientPos(e.clientX, e.clientY);
+      }
     });
 
     this.canvas.addEventListener('pointerdown', (e) => {
@@ -308,8 +312,12 @@ export class InputManager {
         const idx = Number(e.code.replace('Digit', '')) - 1;
         this.selectSlot(this.activeSlotIndex === idx ? null : idx);
       } else if (e.code === 'Escape') {
-        this.selectSlot(null);
-        this.selectTower(null);
+        if (this.activeSlotIndex !== null || this.selectedTower !== null) {
+          this.selectSlot(null);
+          this.selectTower(null);
+        }
+      } else if (e.code === 'KeyM') {
+        EventBus.emit('ui:toggle_manager', undefined);
       } else if ((e.code === 'KeyU' || e.code === 'KeyF') && this.selectedTower) {
         if (e.shiftKey && e.code === 'KeyU') {
           this.match.upgradeMaxAffordable(this.selectedTower);
@@ -323,8 +331,10 @@ export class InputManager {
         this.match.sellTower(t);
       } else if (e.code === 'Space') {
         e.preventDefault();
-        this.match.skipWave();
-      } else if (e.code === 'KeyQ' || e.code === 'KeyE' || e.code === 'KeyR') {
+        if (this.match.gameMode !== 'survival') {
+          this.match.skipWave();
+        }
+      } else if (e.code === 'KeyQ' || (e.code === 'KeyE' && this.match.gameMode !== 'survival') || e.code === 'KeyR') {
         const idx = e.code === 'KeyQ' ? 0 : e.code === 'KeyE' ? 1 : 2;
         const abilityTowers = this.match.towers.filter((t) => t.def.ability && t.level >= 4);
         if (abilityTowers[idx]) {
@@ -371,7 +381,9 @@ export class InputManager {
       pt.x,
       pt.z,
       this.match.getPlacedFootprints(),
-      this.match.cash
+      this.match.sandboxInfiniteCash ? 999999 : this.match.cash,
+      this.match.modifierEffects.maxTowers,
+      this.match.modifierEffects.towerCostMult
     );
 
     this.previewGroup.position.set(pt.x, check.y, pt.z);

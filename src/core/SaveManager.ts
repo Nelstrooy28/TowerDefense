@@ -1,13 +1,22 @@
 import { EventBus } from './EventBus';
 import { QualityManager, type QualitySettings } from './QualityManager';
-import { rollRandomTrait, type TraitId } from '../data/TraitConfig';
+import { migrateTraitId, rollRandomTrait, type TraitId } from '../data/TraitConfig';
 import { UNITS, type UnitDef } from '../data/UnitRegistry';
 import { CRATES, RARITIES, RARITY_ORDER, type RarityId } from '../data/RarityConfig';
-import type { MapId, DifficultyId } from '../data/MapRegistry';
-import { GARDEN_PASS_TIERS } from '../data/GameModesConfig';
+import { GARDEN_PASS_TIERS, getWeeklyShopOffers } from '../data/GameModesConfig';
+import type { MapId } from '../data/MapRegistry';
+import {
+  DIFFICULTY_LADDER,
+  DIFFICULTY_ORDER,
+  REDEEM_CODES,
+  type DifficultyId,
+  type VariantId,
+  VARIANTS,
+} from '../data/BalanceConfig';
 
 export const SAVE_KEY_V1 = 'garden_bastion_save_v1';
 export const SAVE_KEY_V2 = 'garden_bastion_save_v2';
+export const SAVE_KEY_V3 = 'garden_bastion_save_v3';
 
 export type SoilSkinId =
   | 'garden_loam'
@@ -29,6 +38,23 @@ export interface OwnedUnitData {
   masteryLevel: number; // 0..10 (+1% damage/level)
   soilSkin: SoilSkinId;
   isPrime?: boolean; // v3 §13.4 +12% all stats
+  variant?: VariantId; // v4 Doc 06 §6
+  locked?: boolean; // v4 Doc 03 §2.6
+  favorite?: boolean; // v4 Doc 03 §2.2
+  seen?: boolean; // v4 Doc 01 §3.3 NEW badge
+}
+
+export interface TeamPreset {
+  name: string;
+  slots: Array<string | null>; // length 6
+}
+
+export interface PullHistoryEntry {
+  timestamp: number;
+  banner: string;
+  unitId: string;
+  rarity: RarityId;
+  variant: VariantId;
 }
 
 export interface DailyQuestState {
@@ -56,6 +82,12 @@ export interface LeaderboardEntry {
   topHit: number;
 }
 
+export interface EndlessRunEntry {
+  wave: number;
+  team: string[];
+  date: string;
+}
+
 export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'first_godly', title: 'Divine Sprout', description: 'Pull your first Godly or Exclusive unit', icon: '✨', rewardSeeds: 150 },
   { id: 'beat_insane', title: 'Master Gardener', description: 'Clear any map on Insane difficulty', icon: '🏆', rewardSeeds: 300 },
@@ -76,7 +108,7 @@ export interface SaveStateV2 {
   playerXp: number;
   selectedMap: MapId;
   selectedDifficulty: DifficultyId;
-  loadout: Array<string | null>; // 6 slots
+  loadout: Array<string | null>;
   owned: Record<string, OwnedUnitData>;
   pity: {
     classicSinceLeg: number;
@@ -108,6 +140,27 @@ export interface SaveStateV2 {
   tutorialCompleted: boolean;
   tutorialSkipped: boolean;
   settings: QualitySettings;
+}
+
+export interface SaveStateV3 extends Omit<SaveStateV2, 'version'> {
+  version: 3;
+  eventTickets: number;
+  teamPresets: TeamPreset[];
+  activePreset: number;
+  modifiersBest: Record<string, Record<string, number>>;
+  survivalProgress: Record<string, { bestWave: number; cleared: DifficultyId[] }>;
+  shop: { weekKey: string; stock: Record<string, number> };
+  codesUsed: string[];
+  questGnomeXp: number;
+  questGnomeClaimed: number[];
+  unlockedDifficulties: Record<string, DifficultyId[]>;
+  endlessPodium: Record<string, EndlessRunEntry[]>;
+  storyCleared: number[];
+  pullHistory: PullHistoryEntry[];
+  whatsNewSeenVersion: string;
+  fastSummons: boolean;
+  autoRecycleCommons: boolean;
+  hourlyStreak: number;
 }
 
 function getTodayDateString(): string {
@@ -173,21 +226,29 @@ export function createDefaultSaveV2(): SaveStateV2 {
         unitId: 'tomato_tosser',
         copies: 1,
         fusedStacks: 0,
-        trait: 'Sprouting',
+        trait: 'Keen II',
         traitLocked: false,
         masteryXp: 0,
         masteryLevel: 0,
         soilSkin: 'garden_loam',
+        variant: 'none',
+        locked: false,
+        favorite: false,
+        seen: true,
       },
       cactus_striker: {
         unitId: 'cactus_striker',
         copies: 1,
         fusedStacks: 0,
-        trait: 'Thorny',
+        trait: 'Mighty II',
         traitLocked: false,
         masteryXp: 0,
         masteryLevel: 0,
         soilSkin: 'garden_loam',
+        variant: 'none',
+        locked: false,
+        favorite: false,
+        seen: true,
       },
     },
     pity: {
@@ -223,6 +284,38 @@ export function createDefaultSaveV2(): SaveStateV2 {
   };
 }
 
+export function createDefaultSaveV3(): SaveStateV3 {
+  const v2 = createDefaultSaveV2();
+  const weeklyShop = getWeeklyShopOffers();
+  const initialStock: Record<string, number> = {};
+  for (const offer of weeklyShop.offers) initialStock[offer.unitId] = offer.maxStock;
+  return {
+    ...v2,
+    version: 3,
+    eventTickets: 2,
+    teamPresets: [
+      { name: '① Main Squad', slots: [...v2.loadout] },
+      { name: '② Boss Hunters', slots: [...v2.loadout] },
+      { name: '③ Farm & Chill', slots: [...v2.loadout] },
+    ],
+    activePreset: 0,
+    modifiersBest: {},
+    survivalProgress: {},
+    shop: { weekKey: weeklyShop.weekKey, stock: initialStock },
+    codesUsed: [],
+    questGnomeXp: 0,
+    questGnomeClaimed: [],
+    unlockedDifficulties: {},
+    endlessPodium: {},
+    storyCleared: [],
+    pullHistory: [],
+    whatsNewSeenVersion: '',
+    fastSummons: false,
+    autoRecycleCommons: false,
+    hourlyStreak: 0,
+  };
+}
+
 export function migrateSaveToV2(rawParsed: Record<string, unknown>): SaveStateV2 {
   const def = createDefaultSaveV2();
   const rawOwned = (rawParsed.owned ?? {}) as Record<string, Record<string, unknown>>;
@@ -234,12 +327,16 @@ export function migrateSaveToV2(rawParsed: Record<string, unknown>): SaveStateV2
       unitId: String(u.unitId ?? k),
       copies: Number(u.copies ?? 1),
       fusedStacks: Number(u.fusedStacks ?? 0),
-      trait: (u.trait as TraitId) ?? 'Sprouting',
+      trait: migrateTraitId(u.trait as string | undefined),
       traitLocked: Boolean(u.traitLocked),
       masteryXp: Number(u.masteryXp ?? 0),
       masteryLevel: Number(u.masteryLevel ?? 0),
       soilSkin,
       isPrime: Boolean(u.isPrime),
+      variant: (u.variant as VariantId) ?? 'none',
+      locked: Boolean(u.locked),
+      favorite: Boolean(u.favorite),
+      seen: u.seen === undefined ? true : Boolean(u.seen),
     };
   }
 
@@ -269,8 +366,48 @@ export function migrateSaveToV2(rawParsed: Record<string, unknown>): SaveStateV2
   };
 }
 
+export function migrateSaveToV3(rawParsed: Record<string, unknown>): SaveStateV3 {
+  const def = createDefaultSaveV3();
+  const baseV2 = migrateSaveToV2(rawParsed);
+  const rawPresets = Array.isArray(rawParsed.teamPresets) ? (rawParsed.teamPresets as TeamPreset[]) : null;
+  const presets =
+    rawPresets && rawPresets.length >= 3
+      ? rawPresets
+      : [
+          { name: '① Main Squad', slots: [...baseV2.loadout] },
+          { name: '② Boss Hunters', slots: [...baseV2.loadout] },
+          { name: '③ Farm & Chill', slots: [...baseV2.loadout] },
+        ];
+  const activePreset = Math.max(0, Math.min(presets.length - 1, Number(rawParsed.activePreset ?? 0)));
+
+  return {
+    ...def,
+    ...baseV2,
+    ...(rawParsed as Partial<SaveStateV3>),
+    version: 3,
+    owned: baseV2.owned,
+    pity: baseV2.pity,
+    stats: baseV2.stats,
+    settings: baseV2.settings,
+    dailyQuests: baseV2.dailyQuests,
+    gardenPass: baseV2.gardenPass,
+    teamPresets: presets,
+    activePreset,
+    loadout: presets[activePreset].slots,
+    modifiersBest: { ...((rawParsed.modifiersBest as SaveStateV3['modifiersBest']) ?? {}) },
+    survivalProgress: { ...((rawParsed.survivalProgress as SaveStateV3['survivalProgress']) ?? {}) },
+    shop: { ...def.shop, ...((rawParsed.shop as SaveStateV3['shop']) ?? {}) },
+    codesUsed: Array.isArray(rawParsed.codesUsed) ? (rawParsed.codesUsed as string[]) : [],
+    questGnomeClaimed: Array.isArray(rawParsed.questGnomeClaimed) ? (rawParsed.questGnomeClaimed as number[]) : [],
+    unlockedDifficulties: { ...((rawParsed.unlockedDifficulties as Record<string, DifficultyId[]>) ?? {}) },
+    endlessPodium: { ...((rawParsed.endlessPodium as Record<string, EndlessRunEntry[]>) ?? {}) },
+    storyCleared: Array.isArray(rawParsed.storyCleared) ? (rawParsed.storyCleared as number[]) : [],
+    pullHistory: Array.isArray(rawParsed.pullHistory) ? (rawParsed.pullHistory as PullHistoryEntry[]) : [],
+  };
+}
+
 class SaveManagerImpl {
-  public data: SaveStateV2 = createDefaultSaveV2();
+  public data: SaveStateV3 = createDefaultSaveV3();
 
   constructor() {
     this.load();
@@ -302,47 +439,71 @@ class SaveManagerImpl {
 
   public load(): void {
     try {
-      const rawV2 = localStorage.getItem(SAVE_KEY_V2);
-      if (rawV2) {
-        const parsed = JSON.parse(rawV2) as Record<string, unknown>;
-        this.data = migrateSaveToV2(parsed);
-        this.checkDailyReset();
+      const rawV3 = localStorage.getItem(SAVE_KEY_V3);
+      if (rawV3) {
+        this.data = migrateSaveToV3(JSON.parse(rawV3) as Record<string, unknown>);
+        this.checkDailyAndShopReset();
         QualityManager.applySettings(this.data.settings, false);
         return;
       }
 
-      // Migrate v1 -> v2, keeping v1 intact (§21)
-      const rawV1 = localStorage.getItem(SAVE_KEY_V1);
-      if (rawV1) {
-        const parsedV1 = JSON.parse(rawV1) as Record<string, unknown>;
-        this.data = migrateSaveToV2(parsedV1);
-        this.checkDailyReset();
+      // Migrate v2 -> v3, keeping v2 intact
+      const rawV2 = localStorage.getItem(SAVE_KEY_V2);
+      if (rawV2) {
+        this.data = migrateSaveToV3(JSON.parse(rawV2) as Record<string, unknown>);
+        this.checkDailyAndShopReset();
         QualityManager.applySettings(this.data.settings, false);
         this.save();
         return;
       }
 
-      this.data = createDefaultSaveV2();
+      // Migrate v1 -> v3, keeping v1 intact
+      const rawV1 = localStorage.getItem(SAVE_KEY_V1);
+      if (rawV1) {
+        this.data = migrateSaveToV3(JSON.parse(rawV1) as Record<string, unknown>);
+        this.checkDailyAndShopReset();
+        QualityManager.applySettings(this.data.settings, false);
+        this.save();
+        return;
+      }
+
+      this.data = createDefaultSaveV3();
       this.save();
     } catch {
-      this.data = createDefaultSaveV2();
+      this.data = createDefaultSaveV3();
       this.save();
     }
   }
 
   public checkDailyReset(): void {
+    this.checkDailyAndShopReset();
+  }
+
+  public checkDailyAndShopReset(): void {
+    let dirty = false;
     const today = getTodayDateString();
     if (this.data.dailyQuestDate !== today) {
       this.data.dailyQuestDate = today;
       this.data.dailyQuests = createDailyQuests();
-      this.save();
+      dirty = true;
     }
+    const weeklyShop = getWeeklyShopOffers();
+    if (this.data.shop.weekKey !== weeklyShop.weekKey) {
+      const stock: Record<string, number> = {};
+      for (const o of weeklyShop.offers) stock[o.unitId] = o.maxStock;
+      this.data.shop = { weekKey: weeklyShop.weekKey, stock };
+      dirty = true;
+    }
+    if (dirty) this.save();
   }
 
   public save(): void {
     this.data.settings = { ...QualityManager.settings };
+    if (this.data.teamPresets[this.data.activePreset]) {
+      this.data.teamPresets[this.data.activePreset].slots = [...this.data.loadout];
+    }
     try {
-      localStorage.setItem(SAVE_KEY_V2, JSON.stringify(this.data));
+      localStorage.setItem(SAVE_KEY_V3, JSON.stringify(this.data));
     } catch {
       // Ignore storage quota errors
     }
@@ -350,7 +511,7 @@ class SaveManagerImpl {
   }
 
   public resetSave(): void {
-    this.data = createDefaultSaveV2();
+    this.data = createDefaultSaveV3();
     QualityManager.applySettings(this.data.settings, true);
     this.save();
   }
@@ -363,13 +524,31 @@ class SaveManagerImpl {
     try {
       const json = decodeURIComponent(escape(atob(encoded.trim())));
       const parsed = JSON.parse(json) as Record<string, unknown>;
-      this.data = migrateSaveToV2(parsed);
+      this.data = migrateSaveToV3(parsed);
       QualityManager.applySettings(this.data.settings, true);
       this.save();
       return true;
     } catch {
       return false;
     }
+  }
+
+  /** Doc 06 §7 Active boost windows (Weekend ×2 Seeds, daily clock-synced Luck Hour). */
+  public getActiveBoosts(now = new Date()): {
+    doubleSeeds: boolean;
+    doubleLuck: boolean;
+    luckCountdownSec: number;
+  } {
+    const day = now.getDay();
+    const doubleSeeds = day === 0 || day === 6;
+    const luckHour = (now.getDate() * 7 + now.getMonth() * 5) % 24;
+    const doubleLuck = now.getHours() === luckHour;
+    const secsIntoHour = now.getMinutes() * 60 + now.getSeconds();
+    return {
+      doubleSeeds,
+      doubleLuck,
+      luckCountdownSec: doubleLuck ? Math.max(0, 3600 - secsIntoHour) : 0,
+    };
   }
 
   public addSeeds(amount: number): void {
@@ -389,6 +568,12 @@ class SaveManagerImpl {
       this.data.playerXp -= needed;
       this.data.playerLevel++;
       this.data.seeds += 50;
+      if (this.data.playerLevel === 15 && this.data.teamPresets.length < 4) {
+        this.data.teamPresets.push({ name: '④ Endless', slots: [...this.data.loadout] });
+      }
+      if (this.data.playerLevel === 30 && this.data.teamPresets.length < 5) {
+        this.data.teamPresets.push({ name: '⑤ Blight', slots: [...this.data.loadout] });
+      }
       needed = this.data.playerLevel * 200;
     }
 
@@ -418,9 +603,16 @@ class SaveManagerImpl {
     this.data.gardenPass.claimed.push(tier);
     if (def.seeds) this.data.seeds += def.seeds;
     if (def.dewdrops) this.data.dewdrops += def.dewdrops;
-    if (def.unitId && !this.data.owned[def.unitId]) {
-      this.data.owned[def.unitId] = {
-        unitId: def.unitId,
+    if (def.unitId) this.grantUnit(def.unitId);
+    this.save();
+    return true;
+  }
+
+  public grantUnit(unitId: string, variant: VariantId = 'none'): void {
+    const existing = this.data.owned[unitId];
+    if (!existing) {
+      this.data.owned[unitId] = {
+        unitId,
         copies: 1,
         fusedStacks: 0,
         trait: rollRandomTrait(),
@@ -428,10 +620,59 @@ class SaveManagerImpl {
         masteryXp: 0,
         masteryLevel: 0,
         soilSkin: 'garden_loam',
+        variant,
+        locked: false,
+        favorite: false,
+        seen: false,
       };
+      const emptySlot = this.data.loadout.indexOf(null);
+      if (emptySlot !== -1) this.data.loadout[emptySlot] = unitId;
+    } else {
+      existing.copies += 1;
+      if (variant !== 'none' && existing.variant === 'none') existing.variant = variant;
+    }
+  }
+
+  public switchTeamPreset(index: number): void {
+    if (index < 0 || index >= this.data.teamPresets.length) return;
+    this.data.activePreset = index;
+    this.data.loadout = [...this.data.teamPresets[index].slots];
+    this.save();
+  }
+
+  public renameTeamPreset(index: number, name: string): void {
+    if (!this.data.teamPresets[index] || !name.trim()) return;
+    this.data.teamPresets[index].name = name.trim().slice(0, 18);
+    this.save();
+  }
+
+  public isDifficultyUnlocked(mapId: MapId, diff: DifficultyId): boolean {
+    if (diff === 'Easy') return true;
+    const unlocked = this.data.unlockedDifficulties[mapId] ?? [];
+    if (unlocked.includes(diff)) return true;
+    const idx = DIFFICULTY_ORDER.indexOf(diff);
+    const prev = DIFFICULTY_ORDER[idx - 1];
+    if (diff === 'Blight') {
+      const apocMaps = Object.values(this.data.unlockedDifficulties).filter((arr) =>
+        arr.includes('Blight') || arr.includes('Apocalypse')
+      ).length;
+      return apocMaps >= 3 && unlocked.includes('Apocalypse');
+    }
+    return prev ? unlocked.includes(diff) : true;
+  }
+
+  public unlockNextDifficulty(mapId: MapId, clearedDiff: DifficultyId): void {
+    if (!this.data.unlockedDifficulties[mapId]) {
+      this.data.unlockedDifficulties[mapId] = ['Easy'];
+    }
+    const list = this.data.unlockedDifficulties[mapId];
+    if (!list.includes(clearedDiff)) list.push(clearedDiff);
+    const idx = DIFFICULTY_ORDER.indexOf(clearedDiff);
+    const next = DIFFICULTY_ORDER[idx + 1];
+    if (next && !list.includes(next)) {
+      list.push(next);
     }
     this.save();
-    return true;
   }
 
   public recordLeaderboard(
@@ -456,6 +697,19 @@ class SaveManagerImpl {
     this.save();
   }
 
+  public recordEndlessPodium(mapId: string, wave: number): void {
+    if (wave <= 0) return;
+    if (!this.data.endlessPodium[mapId]) this.data.endlessPodium[mapId] = [];
+    this.data.endlessPodium[mapId].push({
+      wave,
+      team: this.data.loadout.filter((x): x is string => Boolean(x)),
+      date: getTodayDateString(),
+    });
+    this.data.endlessPodium[mapId].sort((a, b) => b.wave - a.wave);
+    this.data.endlessPodium[mapId] = this.data.endlessPodium[mapId].slice(0, 3);
+    this.save();
+  }
+
   public markEnemySeen(enemyId: string): void {
     if (!this.data.bestiarySeen.includes(enemyId)) {
       this.data.bestiarySeen.push(enemyId);
@@ -469,15 +723,52 @@ class SaveManagerImpl {
     }
   }
 
+  public markUnitSeen(unitId: string): void {
+    const owned = this.data.owned[unitId];
+    if (owned && !owned.seen) {
+      owned.seen = true;
+      this.save();
+    }
+  }
+
+  public toggleUnitLock(unitId: string): void {
+    const owned = this.data.owned[unitId];
+    if (!owned) return;
+    owned.locked = !owned.locked;
+    this.save();
+  }
+
+  public toggleUnitFavorite(unitId: string): void {
+    const owned = this.data.owned[unitId];
+    if (!owned) return;
+    owned.favorite = !owned.favorite;
+    this.save();
+  }
+
+  public recycleSpareCopy(unitId: string, rarity: RarityId): number {
+    const owned = this.data.owned[unitId];
+    if (!owned || owned.locked || owned.copies <= 1) return 0;
+    owned.copies -= 1;
+    const gain = Math.max(1, RARITIES[rarity].dewdropsOnDupe);
+    this.data.dewdrops += gain;
+    this.save();
+    return gain;
+  }
+
   public getUnitBonusDamageMult(unitId: string): number {
     const owned = this.data.owned[unitId];
     if (!owned) return 1.0;
     const primeMult = owned.isPrime ? 1.12 : 1.0;
-    return (1 + owned.fusedStacks * 0.05 + owned.masteryLevel * 0.01) * primeMult;
+    const variantMult = VARIANTS[owned.variant ?? 'none']?.statMult ?? 1.0;
+    return (1 + owned.fusedStacks * 0.05 + owned.masteryLevel * 0.01) * primeMult * variantMult;
   }
 
   public getUnitPrimeStatMult(unitId: string): number {
-    return this.data.owned[unitId]?.isPrime ? 1.12 : 1.0;
+    const owned = this.data.owned[unitId];
+    if (!owned) return 1.0;
+    const primeMult = owned.isPrime ? 1.12 : 1.0;
+    const variantMult = VARIANTS[owned.variant ?? 'none']?.statMult ?? 1.0;
+    return primeMult * variantMult;
   }
 
   public evolveUnitToPrime(unitId: string): boolean {
@@ -556,6 +847,20 @@ class SaveManagerImpl {
     return true;
   }
 
+  public setLoadoutSlot(slotIndex: number, unitId: string | null): void {
+    if (slotIndex < 0 || slotIndex >= 6) return;
+    if (unitId && !this.data.owned[unitId]) return;
+    if (unitId === null) {
+      const equipped = this.data.loadout.filter(Boolean).length;
+      if (equipped <= 1 && this.data.loadout[slotIndex] !== null) return;
+    } else {
+      const existing = this.data.loadout.indexOf(unitId);
+      if (existing >= 0) this.data.loadout[existing] = this.data.loadout[slotIndex];
+    }
+    this.data.loadout[slotIndex] = unitId;
+    this.save();
+  }
+
   public fuseUnitCopies(unitId: string): boolean {
     const owned = this.data.owned[unitId];
     if (!owned || owned.copies < 4) return false;
@@ -590,6 +895,155 @@ class SaveManagerImpl {
     return newTrait;
   }
 
+  public redeemCode(rawCode: string): { ok: boolean; message: string } {
+    const code = rawCode.trim().toUpperCase();
+    const def = REDEEM_CODES[code];
+    if (!def) return { ok: false, message: 'Invalid code.' };
+    if (this.data.codesUsed.includes(code)) return { ok: false, message: 'Code already redeemed.' };
+    this.data.codesUsed.push(code);
+    this.data.seeds += def.seeds;
+    this.data.dewdrops += def.dewdrops;
+    if (def.tickets) this.data.eventTickets += def.tickets;
+    this.save();
+    return { ok: true, message: `Redeemed: ${def.label}` };
+  }
+
+  public buyShopOffer(unitId: string): boolean {
+    const offers = getWeeklyShopOffers().offers;
+    const offer = offers.find((o) => o.unitId === unitId);
+    if (!offer) return false;
+    const stock = this.data.shop.stock[unitId] ?? 0;
+    if (stock <= 0 || this.data.seeds < offer.priceSeeds) return false;
+    this.data.seeds -= offer.priceSeeds;
+    this.data.shop.stock[unitId] = stock - 1;
+    this.grantUnit(unitId);
+    this.save();
+    return true;
+  }
+
+  public claimQuestGnomeMilestone(xpThreshold: number, unitId: string): boolean {
+    if (this.data.questGnomeXp < xpThreshold || this.data.questGnomeClaimed.includes(xpThreshold)) return false;
+    this.data.questGnomeClaimed.push(xpThreshold);
+    this.grantUnit(unitId);
+    this.save();
+    return true;
+  }
+
+  public pullBanner(
+    bannerType: 'classic' | 'enchanted' | 'featured' | 'event',
+    count: 1 | 10,
+    featuredUnitId?: string
+  ): Array<{
+    unit: UnitDef;
+    rarity: RarityId;
+    trait: TraitId;
+    variant: VariantId;
+    isNew: boolean;
+    dewdropsGained: number;
+  }> | null {
+    const singleCost = bannerType === 'classic' ? 100 : bannerType === 'enchanted' ? 200 : bannerType === 'featured' ? 250 : 1;
+    const cost = count === 10 ? singleCost * 9 : singleCost;
+
+    if (bannerType === 'event') {
+      if (this.data.eventTickets < cost) return null;
+      this.data.eventTickets -= cost;
+    } else {
+      if (this.data.seeds < cost) return null;
+      this.data.seeds -= cost;
+    }
+
+    const luckBoost = this.getActiveBoosts().doubleLuck;
+    const crateKey: 'classic' | 'enchanted' = bannerType === 'classic' ? 'classic' : 'enchanted';
+    const def = CRATES[crateKey];
+    const results: Array<{
+      unit: UnitDef;
+      rarity: RarityId;
+      trait: TraitId;
+      variant: VariantId;
+      isNew: boolean;
+      dewdropsGained: number;
+    }> = [];
+
+    for (let i = 0; i < count; i++) {
+      let minRarity: RarityId | null = count === 10 && i === 0 ? 'Rare' : null;
+      if (bannerType === 'classic') {
+        this.data.pity.classicSinceLeg++;
+        this.data.pity.classicSinceMyth++;
+        if (this.data.pity.classicSinceMyth >= def.pitySecondaryThreshold) minRarity = 'Mythical';
+        else if (this.data.pity.classicSinceLeg >= def.pityPrimaryThreshold) minRarity = 'Legendary';
+      } else {
+        this.data.pity.enchantedSinceMyth++;
+        this.data.pity.enchantedSinceGodly++;
+        if (this.data.pity.enchantedSinceGodly >= def.pitySecondaryThreshold) minRarity = 'Godly';
+        else if (this.data.pity.enchantedSinceMyth >= def.pityPrimaryThreshold) minRarity = 'Mythical';
+      }
+
+      let rarity = this.rollRarity(crateKey, luckBoost);
+      if (minRarity && RARITY_ORDER.indexOf(rarity) < RARITY_ORDER.indexOf(minRarity)) {
+        rarity = minRarity;
+      }
+
+      if (bannerType === 'classic') {
+        if (RARITY_ORDER.indexOf(rarity) >= RARITY_ORDER.indexOf('Legendary')) this.data.pity.classicSinceLeg = 0;
+        if (RARITY_ORDER.indexOf(rarity) >= RARITY_ORDER.indexOf('Mythical')) this.data.pity.classicSinceMyth = 0;
+      } else {
+        if (RARITY_ORDER.indexOf(rarity) >= RARITY_ORDER.indexOf('Mythical')) this.data.pity.enchantedSinceMyth = 0;
+        if (RARITY_ORDER.indexOf(rarity) >= RARITY_ORDER.indexOf('Godly')) this.data.pity.enchantedSinceGodly = 0;
+      }
+
+      const pool = UNITS.filter((u) => u.rarity === rarity);
+      let unit = pool[Math.floor(Math.random() * pool.length)] ?? UNITS[0];
+      if (bannerType === 'featured' && featuredUnitId && RARITY_ORDER.indexOf(rarity) >= RARITY_ORDER.indexOf('Legendary') && Math.random() < 0.5) {
+        const feat = UNITS.find((u) => u.id === featuredUnitId);
+        if (feat) unit = feat;
+      }
+
+      const vRoll = Math.random();
+      const variant: VariantId = vRoll < 0.0002 ? 'rainbow' : vRoll < 0.0052 ? 'glass' : 'none';
+
+      const existing = this.data.owned[unit.id];
+      const isNew = !existing;
+      const trait = isNew ? rollRandomTrait() : existing.trait;
+      let dewdropsGained = 0;
+
+      if (isNew) {
+        this.grantUnit(unit.id, variant);
+        this.data.owned[unit.id].trait = trait;
+      } else {
+        existing.copies += 1;
+        if (variant !== 'none' && (!existing.variant || existing.variant === 'none')) existing.variant = variant;
+        dewdropsGained = RARITIES[rarity].dewdropsOnDupe;
+        this.data.dewdrops += dewdropsGained;
+        if (this.data.autoRecycleCommons && (rarity === 'Common' || rarity === 'Uncommon') && !existing.locked && existing.copies > 1) {
+          existing.copies -= 1;
+          const extra = RARITIES[rarity].dewdropsOnDupe;
+          dewdropsGained += extra;
+          this.data.dewdrops += extra;
+        }
+      }
+
+      if (rarity === 'Godly' || rarity === 'Exclusive') this.unlockAchievement('first_godly');
+
+      this.data.stats.cratesOpened += 1;
+      this.data.pullHistory.unshift({
+        timestamp: Date.now(),
+        banner: bannerType,
+        unitId: unit.id,
+        rarity,
+        variant,
+      });
+      if (this.data.pullHistory.length > 100) this.data.pullHistory.length = 100;
+      results.push({ unit, rarity, trait, variant, isNew, dewdropsGained });
+    }
+
+    if (results.length > 1) {
+      results.sort((a, b) => RARITIES[a.rarity].order - RARITIES[b.rarity].order);
+    }
+
+    this.save();
+    return results;
+  }
+
   public pullCrates(
     crateType: 'classic' | 'enchanted',
     count: 1 | 5,
@@ -601,119 +1055,29 @@ class SaveManagerImpl {
     isNew: boolean;
     dewdropsGained: number;
   }> | null {
-    const def = CRATES[crateType];
-    const totalCost = useFreeKey && crateType === 'enchanted' && count === 1 ? 0 : def.costSeeds * count;
-    if (totalCost > this.data.seeds) return null;
-    if (useFreeKey && crateType === 'enchanted' && count === 1) {
-      if (this.data.enchantedKeys <= 0) return null;
+    if (useFreeKey && crateType === 'enchanted' && count === 1 && this.data.enchantedKeys > 0) {
       this.data.enchantedKeys -= 1;
-    } else {
-      this.data.seeds -= totalCost;
+      this.data.seeds += CRATES.enchanted.costSeeds;
     }
-
-    const results: Array<{
-      unit: UnitDef;
-      rarity: RarityId;
-      trait: TraitId;
-      isNew: boolean;
-      dewdropsGained: number;
-    }> = [];
-
-    for (let i = 0; i < count; i++) {
-      let minRarity: RarityId | null = null;
-      if (crateType === 'classic') {
-        this.data.pity.classicSinceLeg++;
-        this.data.pity.classicSinceMyth++;
-        if (this.data.pity.classicSinceMyth >= def.pitySecondaryThreshold) {
-          minRarity = 'Mythical';
-        } else if (this.data.pity.classicSinceLeg >= def.pityPrimaryThreshold) {
-          minRarity = 'Legendary';
-        }
-      } else {
-        this.data.pity.enchantedSinceMyth++;
-        this.data.pity.enchantedSinceGodly++;
-        if (this.data.pity.enchantedSinceGodly >= def.pitySecondaryThreshold) {
-          minRarity = 'Godly';
-        } else if (this.data.pity.enchantedSinceMyth >= def.pityPrimaryThreshold) {
-          minRarity = 'Mythical';
-        }
-      }
-
-      let rarity = this.rollRarity(crateType);
-      if (minRarity && RARITY_ORDER.indexOf(rarity) < RARITY_ORDER.indexOf(minRarity)) {
-        rarity = minRarity;
-      }
-
-      if (crateType === 'classic') {
-        if (RARITY_ORDER.indexOf(rarity) >= RARITY_ORDER.indexOf('Legendary')) {
-          this.data.pity.classicSinceLeg = 0;
-        }
-        if (RARITY_ORDER.indexOf(rarity) >= RARITY_ORDER.indexOf('Mythical')) {
-          this.data.pity.classicSinceMyth = 0;
-        }
-      } else {
-        if (RARITY_ORDER.indexOf(rarity) >= RARITY_ORDER.indexOf('Mythical')) {
-          this.data.pity.enchantedSinceMyth = 0;
-        }
-        if (RARITY_ORDER.indexOf(rarity) >= RARITY_ORDER.indexOf('Godly')) {
-          this.data.pity.enchantedSinceGodly = 0;
-        }
-      }
-
-      const pool = UNITS.filter((u) => u.rarity === rarity);
-      const unit = pool[Math.floor(Math.random() * pool.length)] ?? UNITS[0];
-      const existing = this.data.owned[unit.id];
-      const isNew = !existing;
-      const trait = isNew ? rollRandomTrait() : existing.trait;
-      let dewdropsGained = 0;
-
-      if (isNew) {
-        this.data.owned[unit.id] = {
-          unitId: unit.id,
-          copies: 1,
-          fusedStacks: 0,
-          trait,
-          traitLocked: false,
-          masteryXp: 0,
-          masteryLevel: 0,
-          soilSkin: 'garden_loam',
-        };
-        const emptySlot = this.data.loadout.indexOf(null);
-        if (emptySlot !== -1) {
-          this.data.loadout[emptySlot] = unit.id;
-        }
-      } else {
-        existing.copies += 1;
-        dewdropsGained = RARITIES[rarity].dewdropsOnDupe;
-        this.data.dewdrops += dewdropsGained;
-      }
-
-      if (rarity === 'Godly' || rarity === 'Exclusive') {
-        this.unlockAchievement('first_godly');
-      }
-
-      this.data.stats.cratesOpened += 1;
-      results.push({ unit, rarity, trait, isNew, dewdropsGained });
-    }
-
-    if (results.length > 1) {
-      results.sort((a, b) => RARITIES[a.rarity].order - RARITIES[b.rarity].order);
-    }
-
-    this.save();
-    return results;
+    const pulled = this.pullBanner(crateType, count === 5 ? 10 : 1);
+    return pulled?.slice(0, count) ?? null;
   }
 
-  private rollRarity(crateType: 'classic' | 'enchanted'): RarityId {
+  private rollRarity(crateType: 'classic' | 'enchanted', doubleLuck = false): RarityId {
     let total = 0;
+    const weights: number[] = [];
     for (const r of RARITY_ORDER) {
-      total += crateType === 'classic' ? RARITIES[r].classicWeight : RARITIES[r].enchantedWeight;
+      let w = crateType === 'classic' ? RARITIES[r].classicWeight : RARITIES[r].enchantedWeight;
+      if (doubleLuck && RARITY_ORDER.indexOf(r) >= RARITY_ORDER.indexOf('Legendary')) {
+        w *= 2;
+      }
+      weights.push(w);
+      total += w;
     }
     let roll = Math.random() * total;
-    for (const r of RARITY_ORDER) {
-      const w = crateType === 'classic' ? RARITIES[r].classicWeight : RARITIES[r].enchantedWeight;
-      roll -= w;
-      if (roll <= 0) return r;
+    for (let i = 0; i < RARITY_ORDER.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0) return RARITY_ORDER[i];
     }
     return 'Common';
   }
@@ -724,6 +1088,7 @@ class SaveManagerImpl {
     q.claimed = true;
     if (q.rewardSeeds > 0) this.data.seeds += q.rewardSeeds;
     if (q.rewardEnchantedCrate) this.data.enchantedKeys += q.rewardEnchantedCrate;
+    this.data.questGnomeXp += 100;
     this.save();
     return true;
   }
@@ -740,6 +1105,10 @@ class SaveManagerImpl {
       title: def.title,
       rewardSeeds: def.rewardSeeds,
     });
+  }
+
+  public isDifficultyClearEligible(diff: DifficultyId): boolean {
+    return DIFFICULTY_LADDER[diff] !== undefined;
   }
 }
 

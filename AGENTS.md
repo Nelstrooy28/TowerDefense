@@ -8,6 +8,7 @@
 - Start local dev server: `npm run dev`
 - Strict type-check: `npm run typecheck` (`tsc --noEmit`)
 - Unit tests: `npm test` (`vitest run`)
+- Balance tester: `npm run balance`
 - E2E smoke test: `npm run test:e2e` (`playwright test`)
 - Production build: `npm run build`
 - Preview production bundle: `npm run preview`
@@ -29,6 +30,10 @@
 14. Every UI change is checked in a real browser at 1366x768 and 1920x1080: no text overflow, no text under 14 px.
 15. Touch controls must keep working: tap, pinch, two-finger rotate.
 16. Run `npm run typecheck && npm test && npm run build` before committing.
+17. Every balance number lives in `src/data/BalanceConfig.ts`. No magic numbers in simulation code. Change a number → run `npm run balance` → paste the result table into the PR.
+18. Every screen is a Screen class registered in `src/ui/ScreenRouter.ts`. Screens open and close through the router only, so Back/Esc always works.
+19. Maps are built from `MapLayout` data + the shared `PropKit`. No one-off meshes inside map code.
+20. Buttons use the shared garden button styles (leaf, wood sign, seed pod). No plain rectangle buttons with a thin border.
 
 ## Adding New Units or Enemies
 1. Register stats, costs, caps, abilities in `src/data/UnitRegistry.ts` or `EnemyRegistry.ts`.
