@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Garden Bastion TD — Specification v3 (Upgrade Plan)</title>
+<style>
+  :root { --g1:#14532d; --g2:#166534; --g3:#22c55e; --g4:#dcfce7; --ink:#1f2937; --mute:#6b7280; --line:#d1d5db; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.5; color: var(--ink); max-width: 960px; margin: 0 auto; padding: 24px; background:#fff; }
+  h1 { color: var(--g1); font-size: 24pt; margin: 0 0 4px; }
+  h2 { color: var(--g2); border-bottom: 2px solid var(--g3); padding-bottom: 4px; margin-top: 34px; font-size: 15pt; }
+  h3 { color: var(--g2); margin-top: 22px; font-size: 12pt; }
+  h4 { color: #15803d; margin: 16px 0 6px; font-size: 11pt; }
+  p, li { margin: 4px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 9pt; margin: 10px 0 14px; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th { background: var(--g4); color: var(--g1); text-align: left; }
+  th, td { border: 1px solid var(--line); padding: 5px 7px; vertical-align: top; }
+  code { font-family: Consolas, monospace; font-size: 9pt; background: #f3f4f6; padding: 1px 4px; border-radius: 3px; }
+  pre { background: #f3f4f6; padding: 10px 12px; border-radius: 6px; font-size: 8.5pt; white-space: pre-wrap; page-break-inside: avoid; }
+  .cover { border: 3px solid var(--g3); border-radius: 14px; padding: 22px 26px; background: linear-gradient(135deg,#f0fdf4,#ecfeff); }
+  .sub { color: var(--mute); font-size: 11pt; margin: 0; }
+  .meta { margin-top: 12px; font-size: 9.5pt; }
+  .meta td { border: none; padding: 2px 10px 2px 0; }
+  .note { background: #fef9c3; border-left: 4px solid #facc15; padding: 8px 14px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .tip { background: #ecfeff; border-left: 4px solid #06b6d4; padding: 8px 14px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .tag { display: inline-block; font-size: 7.5pt; font-weight: 700; padding: 1px 6px; border-radius: 10px; color: #fff; vertical-align: middle; }
+  .fix { background: #dc2626; } .new { background: #16a34a; } .up { background: #2563eb; } .vfx { background: #9333ea; } .anim { background: #ea580c; }
+  .ok { color: #15803d; font-weight: 700; } .part { color: #b45309; font-weight: 700; } .no { color: #dc2626; font-weight: 700; }
+  .toc { columns: 2; font-size: 9.5pt; }
+  .toc li { break-inside: avoid; }
+  .pb { page-break-before: always; }
+  .legend span { margin-right: 10px; }
+  @page { size: A4; margin: 14mm; }
+  @media print {
+    body { padding: 0; max-width: none; }
+    a { color: inherit; text-decoration: none; }
+    h2 { page-break-after: avoid; } h3, h4 { page-break-after: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>🌻 Garden Bastion TD</h1>
+  <p class="sub">Specification v3 — Upgrade Plan, New Content, Animation &amp; VFX</p>
+  <table class="meta">
+    <tr><td><b>Builds on</b></td><td>Specification v2 (all v2 rules stay in force unless this document replaces them)</td></tr>
+    <tr><td><b>Repo checked</b></td><td><code>Nelstrooy28/TowerDefense</code>, branch <code>main</code>, commit <code>21b3f29</code> (2026-11-18)</td></tr>
+    <tr><td><b>Latest change</b></td><td>“replace flowerpot unit bases with natural ground roots and soil mounds”</td></tr>
+    <tr><td><b>Live site</b></td><td>https://nelstrooy28.github.io/TowerDefense/ (deploys from <code>main</code> via GitHub Actions)</td></tr>
+    <tr><td><b>Build health</b></td><td>Type-check pass · Build pass · 59 modules · JS 762 KB (203 KB gzip) · no TODO stubs</td></tr>
+  </table>
+  <p class="legend" style="margin-top:10px;font-size:9pt">
+    <span><span class="tag fix">FIX</span> gap in current build</span>
+    <span><span class="tag up">UPGRADE</span> improve existing system</span>
+    <span><span class="tag new">NEW</span> new content / system</span>
+    <span><span class="tag anim">ANIM</span> animation</span>
+    <span><span class="tag vfx">VFX</span> visual effect</span>
+  </p>
+</div>
+
+<h2>Contents</h2>
+<ol class="toc">
+  <li>Build Audit — What v2 Delivered</li>
+  <li>Fix-First List (gaps found in the code)</li>
+  <li>Roots &amp; Soil Mound Evolution (replaces v2 pot evolution)</li>
+  <li>Placement, Upgrade &amp; Sell Animation v3</li>
+  <li>Root Network — Visible Tower Links</li>
+  <li>Enemy Animation &amp; Death VFX v3</li>
+  <li>New Units (3)</li>
+  <li>New Enemies (4)</li>
+  <li>New Bosses — One per Map</li>
+  <li>Map Upgrades &amp; a 4th Map</li>
+  <li>Weather v3 — Storms &amp; Seasons</li>
+  <li>New Game Modes</li>
+  <li>Meta Progression v3</li>
+  <li>HUD &amp; UI v3</li>
+  <li>Touch &amp; Mobile Support</li>
+  <li>Quality-of-Life Controls</li>
+  <li>Audio v3</li>
+  <li>VFX Recipe Book v3</li>
+  <li>Performance v3</li>
+  <li>Testing &amp; CI v3</li>
+  <li>Save Data v2 Migration</li>
+  <li>AGENTS.md Additions</li>
+  <li>Implementation Milestones M9–M16</li>
+</ol>
+
+<!-- ===================================================== -->
+<h2 class="pb">1. Build Audit — What v2 Delivered</h2>
+<p>The current <code>main</code> branch was checked file by file against Specification v2. The game is complete enough to play: lobby, three maps, four difficulties, crates, traits, matches, bosses and settings all load with no browser errors.</p>
+
+<table>
+  <tr><th>Area</th><th>v2 Section</th><th>Status</th><th>Where in code</th></tr>
+  <tr><td>Engine, bloom, PostFX pass, contact shadows</td><td>§3.1</td><td class="ok">Done</td><td><code>Engine.ts</code>, <code>PostFX.ts</code></td></tr>
+  <tr><td>Camera rig + feel layers</td><td>§3.2</td><td class="ok">Done</td><td><code>CameraRig.ts</code></td></tr>
+  <tr><td>Rarity, crates, pity, fuse</td><td>§4.1</td><td class="ok">Done</td><td><code>RarityConfig.ts</code>, <code>SummonModal.ts</code></td></tr>
+  <tr><td>Trait reroll</td><td>§4.2</td><td class="ok">Done</td><td><code>TraitConfig.ts</code>, <code>InventoryModal.ts</code></td></tr>
+  <tr><td>3 maps, placement rules, meteors</td><td>§5.1</td><td class="ok">Done</td><td><code>MapRegistry.ts</code>, <code>PlacementSystem.ts</code></td></tr>
+  <tr><td>Difficulties, Endless, Bloom Chest</td><td>§5.2</td><td class="ok">Done</td><td><code>MatchController.ts</code></td></tr>
+  <tr><td>Crits &amp; hit-stop</td><td>§5.3, §8.3.1</td><td class="ok">Done</td><td><code>TimeScale.ts</code></td></tr>
+  <tr><td>12 units, abilities, radar</td><td>§6</td><td class="ok">Done</td><td><code>UnitRegistry.ts</code></td></tr>
+  <tr><td>Pot visual evolution</td><td>§6</td><td class="part">Replaced</td><td>Commit <code>21b3f29</code> swapped pots for roots — see §3 of this doc</td></tr>
+  <tr><td>7 enemies, burrow, wasp, snail, boss phases</td><td>§7</td><td class="ok">Done</td><td><code>EnemyRegistry.ts</code>, <code>EnemyEntity.ts</code></td></tr>
+  <tr><td>Enemy death poses</td><td>§7.1</td><td class="part">Partial</td><td><code>Animator.ts</code> shrinks the body; the dissolve shader in <code>ShaderLib.ts</code> is never used for deaths</td></tr>
+  <tr><td>Chip health bars</td><td>§7.2</td><td class="ok">Done</td><td><code>EnemyEntity.ts</code></td></tr>
+  <tr><td>Status icons above health bars</td><td>§7.2</td><td class="no">Missing</td><td>No code found</td></tr>
+  <tr><td>Particles, beams, trails, shockwaves, decals</td><td>§8.2, §8.5</td><td class="ok">Done</td><td><code>VFXManager.ts</code>, <code>DecalManager.ts</code></td></tr>
+  <tr><td>Shader library, grass reacting</td><td>§8.4, §8.6</td><td class="ok">Done</td><td><code>ShaderLib.ts</code>, <code>GrassField.ts</code></td></tr>
+  <tr><td>Coin fly to HUD</td><td>§8.7</td><td class="ok">Done</td><td><code>VFXManager.ts</code></td></tr>
+  <tr><td>Boss letterbox, slow-mo</td><td>§8.8</td><td class="ok">Done</td><td><code>UIManager.ts</code>, <code>main.css</code></td></tr>
+  <tr><td>Quality tiers, auto-scaler, reduced motion, colorblind</td><td>§8.9</td><td class="ok">Done</td><td><code>QualityManager.ts</code>, <code>SettingsModal.ts</code></td></tr>
+  <tr><td>Adaptive music</td><td>§10.1</td><td class="ok">Done</td><td><code>AdaptiveMusic.ts</code></td></tr>
+  <tr><td>Synergies, weather, elites</td><td>§15.1–15.3</td><td class="ok">Done</td><td><code>SynergySystem.ts</code>, <code>WeatherSystem.ts</code>, <code>ModifierConfig.ts</code></td></tr>
+  <tr><td>Wave preview, quests, mastery, skins, tutorial</td><td>§15.4–15.7</td><td class="ok">Done</td><td><code>WavePreview.ts</code>, <code>QuestPanel.ts</code></td></tr>
+  <tr><td>DPS meter, F3 debug overlay</td><td>§9, §17</td><td class="ok">Done</td><td><code>CombatHUD.ts</code></td></tr>
+  <tr><td>Two-finger rotate &amp; pinch zoom</td><td>§3.2</td><td class="no">Missing</td><td><code>CameraRig.ts</code> has mouse/pointer only</td></tr>
+  <tr><td>Phone / small-screen layout</td><td>—</td><td class="no">Missing</td><td>No layout rules for small screens</td></tr>
+  <tr><td>JS bundle size</td><td>§17 (≤ 900 KB)</td><td class="part">Close</td><td>762 KB in one file; no code splitting</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2>2. Fix-First List</h2>
+<p>Do these before adding new content. Each is small and closes a v2 promise.</p>
+<table>
+  <tr><th>#</th><th>Fix</th><th>What to do</th><th>Done when</th></tr>
+  <tr><td>F1</td><td><span class="tag fix">FIX</span> Dissolve deaths</td><td>After the death pose in <code>Animator.ts</code>, swap the enemy body to the pooled dissolve material from <code>ShaderLib.ts</code>. Animate <code>uThreshold 0 → 1</code> over <code>0.4 s</code>. Edge color = element of the killing hit (fire orange, ice cyan, arcane violet, default lime).</td><td>Every enemy fades with a glowing edge. No new materials made per kill (pool of 32).</td></tr>
+  <tr><td>F2</td><td><span class="tag fix">FIX</span> Status icons</td><td>Add a small billboard row above each health bar: 🔥 burn, ❄ chill, 🧊 freeze, 🩸 bleed, 💫 stun, 💧 wet. Use one shared sprite-sheet texture from <code>ProceduralTextures.ts</code> and an <code>InstancedMesh</code>. Icon pulses <code>1.0 → 1.25 → 1.0</code> in <code>0.18 s</code> when the status refreshes.</td><td>Icons show and stack (max 4), and draw calls rise by ≤ 2.</td></tr>
+  <tr><td>F3</td><td><span class="tag fix">FIX</span> Touch camera</td><td>See §15. Pinch to zoom, two-finger drag to rotate, one-finger drag to pan.</td><td>Game is playable on a tablet with no mouse.</td></tr>
+  <tr><td>F4</td><td><span class="tag fix">FIX</span> Spec text for roots</td><td>Update tooltips, Inventory preview text and <code>AGENTS.md</code> so nothing still says “pot”. Rename pot skins to “soil skins” (§3.4).</td><td>Search for <code>pot</code> in UI strings returns nothing.</td></tr>
+  <tr><td>F5</td><td><span class="tag fix">FIX</span> Bundle split</td><td>Lazy-load <code>SummonModal</code>, <code>InventoryModal</code>, <code>QuestPanel</code> and <code>SettingsModal</code> with dynamic <code>import()</code>. Put <code>three</code> in its own chunk via <code>build.rollupOptions.output.manualChunks</code>.</td><td>First-load JS ≤ 550 KB; build has no size warning.</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2 class="pb">3. Roots &amp; Soil Mound Evolution <span class="tag up">UPGRADE</span></h2>
+<p>The latest commit removed flowerpots. Plants now grow straight out of the lawn from a soil mound with roots. This section <b>replaces</b> the v2 rule “pot goes terracotta → stone/gold”. Roots now carry the level and rarity story.</p>
+
+<h3>3.1 Level Evolution (all units)</h3>
+<table>
+  <tr><th>Level</th><th>Soil Mound</th><th>Roots</th><th>Plant Body</th><th>Extra</th></tr>
+  <tr><td>0 (placed)</td><td>Small dark mound, radius 0.45</td><td>3 thin roots poke out</td><td>Base model</td><td>Dirt clods on place</td></tr>
+  <tr><td>1</td><td>Mound +10% wider, a few pebbles</td><td>4 roots, thicker</td><td>Stem +10% taller</td><td>1 level star</td></tr>
+  <tr><td>2</td><td>Ring of 5 small stones</td><td>5 roots, curl over stones</td><td>Extra leaves</td><td>Moss patches on mound</td></tr>
+  <tr><td>3</td><td>Stones turn mossy, tiny mushrooms</td><td>Roots get faint glowing veins (rarity color, emissive 0.6)</td><td>Second head / barrel / petals</td><td>Small fireflies orbit (2)</td></tr>
+  <tr><td>4</td><td>Flowers bloom on mound</td><td>Veins pulse slowly (1.2 s)</td><td>Weapon parts get emissive veins</td><td>Ability unlocked: root glow flashes when ready</td></tr>
+  <tr><td>5 (MAX)</td><td>Mound becomes a rune circle in the grass (radius 1.1)</td><td>Roots spread outward and glow bright (emissive 1.4, blooms)</td><td>Awakened form</td><td>Floating crown/halo, petal motes rise from roots</td></tr>
+</table>
+
+<h3>3.2 Rarity Root Styles</h3>
+<table>
+  <tr><th>Rarity</th><th>Root Look</th><th>Ground Aura (keeps v2 aura)</th></tr>
+  <tr><td>Common</td><td>Plain brown roots</td><td>None</td></tr>
+  <tr><td>Uncommon</td><td>Brown with light-blue tips</td><td>Leaf ring</td></tr>
+  <tr><td>Rare</td><td>Twisted, indigo veins</td><td>Pulsing halo</td></tr>
+  <tr><td>Legendary</td><td>Bark with gold bands</td><td>Golden star ring</td></tr>
+  <tr><td>Mythical</td><td>Rose-colored roots with thorns</td><td>Twin rune rings</td></tr>
+  <tr><td>Godly</td><td>Crystal roots that catch light</td><td>Pillar + orbiting shards</td></tr>
+  <tr><td>Exclusive</td><td>Roots made of light, slowly shifting color</td><td>Prism shockwaves + crown</td></tr>
+</table>
+
+<h3>3.3 Root Animation <span class="tag anim">ANIM</span></h3>
+<ul>
+  <li><b>Root breathing:</b> each root scales <code>1 ± 0.03</code> along its length, phase offset by root index, period 3.2 s.</li>
+  <li><b>Attack grip:</b> on heavy attacks (Pineapple, Golem, Flytrap) roots dig in: shorten 8% for 0.1 s, then spring back (<code>k = 320, c = 20</code>).</li>
+  <li><b>Stun:</b> roots go limp (droop 15°) and veins dim to 20% until the stun ends.</li>
+  <li><b>Build roots with</b> a shared tapered <code>TubeGeometry</code> per root shape (6 shapes, built once at startup), never per tower.</li>
+</ul>
+
+<h3>3.4 Soil Skins (replaces pot skins)</h3>
+<p>Mastery 5 and 10 unlock soil skins. They are cosmetic only.</p>
+<table>
+  <tr><th>Skin</th><th>Look</th></tr>
+  <tr><td>Garden Loam</td><td>Default dark soil</td></tr>
+  <tr><td>Mossy Stone</td><td>Stone ring covered in moss</td></tr>
+  <tr><td>Crystal Bed</td><td>Small quartz crystals poke out of the mound</td></tr>
+  <tr><td>Golden Sand</td><td>Shiny gold sand with glints</td></tr>
+  <tr><td>Galaxy Soil</td><td>Dark soil with a moving starfield shader</td></tr>
+  <tr><td>Lava Rock (new)</td><td>Black rock with glowing cracks (unlocked by beating Volcano on Insane)</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2>4. Placement, Upgrade &amp; Sell Animation v3 <span class="tag anim">ANIM</span><span class="tag vfx">VFX</span></h2>
+
+<h3>4.1 Placement — “Seed to Plant” (0.9 s)</h3>
+<table>
+  <tr><th>Time</th><th>Beat</th><th>Visual</th><th>Audio</th></tr>
+  <tr><td>0.00 s</td><td>Seed drop</td><td>A glowing seed falls from 3 units up (ease-in), small shadow grows under it</td><td>soft whistle</td></tr>
+  <tr><td>0.25 s</td><td>Plant</td><td>Seed sinks into grass, dirt clods burst (14), grass flattens in a ring</td><td>dirt thump</td></tr>
+  <tr><td>0.35 s</td><td>Roots burst</td><td>Roots shoot out from center (scale 0 → 1, <code>easeOutBack</code>), small cracks decal</td><td>crackle</td></tr>
+  <tr><td>0.50 s</td><td>Sprout</td><td>Plant springs up <code>(0.1, 1.8, 0.1) → (1, 1, 1)</code></td><td>pop + leaf rustle</td></tr>
+  <tr><td>0.90 s</td><td>Settle</td><td>Rarity aura fades in, range ring flashes once</td><td>rarity chime</td></tr>
+</table>
+<p>At 2x/3x speed the sequence plays at the same real speed (UI time, not game time) but the tower can already attack from 0.5 s.</p>
+
+<h3>4.2 Upgrade v3</h3>
+<p>Keep the v2 upgrade moment (§6.2) and add:</p>
+<ul>
+  <li><b>Root surge:</b> a light pulse travels from the root tips up the stem in 0.2 s, then the model swap happens behind the white flash.</li>
+  <li><b>Ground growth:</b> new stones, moss or flowers for the new level grow in with a 0.3 s spring, not a sudden swap.</li>
+  <li><b>Lv.5:</b> roots spread outward in a ring; the rune circle draws itself clockwise in 0.6 s; light pillar as in v2.</li>
+</ul>
+
+<h3>4.3 Sell — “Return to Soil” (0.6 s)</h3>
+<ul>
+  <li>Plant wilts (stem bends 40°, leaves droop), then shrinks into the mound.</li>
+  <li>Roots pull back into the center one by one.</li>
+  <li>Mound flattens; a leaf swirl (20) rises; <code>+$</code> coins fly to the Cash counter.</li>
+  <li>The grass grows back over the spot during the next 2 s.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2>5. Root Network — Visible Tower Links <span class="tag new">NEW</span><span class="tag vfx">VFX</span></h2>
+<p>Roots make a natural way to show which towers help each other. When towers are close, glowing roots grow under the grass between them.</p>
+<table>
+  <tr><th>Link</th><th>Rule</th><th>Bonus</th><th>Look</th></tr>
+  <tr><td>Support link</td><td>Tower is inside a Speed Sprinkler aura</td><td>(v2 buff, unchanged)</td><td>Blue water-vein root from Sprinkler to tower; droplets travel along it</td></tr>
+  <tr><td>Kin link</td><td>2+ towers of the same unit within 4 units</td><td>+4% damage each, max +12%</td><td>Rarity-colored root line, slow pulse</td></tr>
+  <tr><td>Combo link</td><td>Two towers whose elements make a synergy (v2 §15.1) within 6 units</td><td>Reaction damage +15%</td><td>Two-color braided root</td></tr>
+</table>
+<ul>
+  <li>Draw links as a pooled ribbon mesh hugging the ground (<code>y + 0.02</code>), max 40 links.</li>
+  <li>Links grow in over 0.5 s when a tower is placed and wither over 0.4 s when one is sold.</li>
+  <li>Placement ghost previews links it <i>would</i> make, with the bonus shown as small text.</li>
+  <li>Hold <code>Alt</code> to see all links brightly; otherwise they sit at 35% opacity.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 class="pb">6. Enemy Animation &amp; Death VFX v3 <span class="tag anim">ANIM</span><span class="tag vfx">VFX</span></h2>
+
+<h3>6.1 Spawn Entrances (per map)</h3>
+<table>
+  <tr><th>Map</th><th>Spawn Look</th></tr>
+  <tr><td>Sunny Backyard</td><td>Enemies crawl out of a molehill that puffs dirt; molehill grows bigger on big waves</td></tr>
+  <tr><td>Enchanted Jungle</td><td>Purple spore portal; each spawn pushes a ring of spores out</td></tr>
+  <tr><td>Volcano Greenhouse</td><td>Crack in the glass floor glows, enemies climb out with ember sparks</td></tr>
+  <tr><td>Frosty Allotment (new, §10)</td><td>Snowdrift bursts; enemy shakes off snow</td></tr>
+</table>
+
+<h3>6.2 Hit Reactions by Damage Type</h3>
+<table>
+  <tr><th>Damage Type</th><th>Reaction</th></tr>
+  <tr><td>Physical (tomato, spines, boulder)</td><td>Tilt back 8°, hop on heavy hits (v2)</td></tr>
+  <tr><td>Fire</td><td>Shake side to side 0.15 s, small smoke puff</td></tr>
+  <tr><td>Ice</td><td>Slows animation to 50% for 0.2 s, frost sparkle</td></tr>
+  <tr><td>Beam</td><td>Body glows hot where the beam touches (emissive spot follows hit point)</td></tr>
+  <tr><td>Lightning</td><td>Freeze pose 0.06 s, shows a quick “skeleton” flash</td></tr>
+</table>
+
+<h3>6.3 Death v3</h3>
+<ul>
+  <li>Keep each enemy’s v2 death pose, then <b>dissolve</b> (Fix F1).</li>
+  <li><b>Overkill pop:</b> if the killing hit is more than 2× the enemy’s remaining HP, skip the pose and burst into pieces with a bigger particle recipe and a 30 ms hit-stop.</li>
+  <li><b>Multi-kill:</b> 5+ kills within 0.5 s shows “COMBO ×N” text in gold above the group, a chord rises with N, and coins merge into one big coin.</li>
+  <li><b>Last kill of wave:</b> keep v2 slow-mo; add a bloom ripple of flowers that sweeps down the whole track (0.8 s).</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2>7. New Units (3) <span class="tag new">NEW</span></h2>
+<table>
+  <tr><th>#</th><th>Unit</th><th>Rarity</th><th>Cost</th><th>Cap</th><th>Dmg</th><th>CD (s)</th><th>Range</th><th>Role &amp; Ability</th></tr>
+  <tr><td>13</td><td>Bamboo Archer</td><td>Uncommon</td><td>$375</td><td>6</td><td>30 → 290</td><td>1.60 → 0.95</td><td>15 → 24</td><td>CLIFF only. Long-range piercing arrow (hits up to 3 enemies in a line). Can hit flying.</td></tr>
+  <tr><td>14</td><td>Puffball Spore Mushroom</td><td>Rare</td><td>$600</td><td>5</td><td>12/s → 120/s</td><td>3.0 cloud</td><td>8 → 12</td><td>Drops a poison cloud (radius 2.5, lasts 4 s) on the track. Poison stacks 3×. Hits burrowed moles.</td></tr>
+  <tr><td>15</td><td>Sunflower Solar Beacon</td><td>Legendary</td><td>$1,000</td><td>3</td><td>— (Support)</td><td>—</td><td>8 → 13</td><td>Aura: +6% → +15% crit chance to nearby towers. <b>Solar Flare</b> (Lv.4): all towers in range crit for 4 s, 35 s CD.</td></tr>
+</table>
+
+<h4>7.1 Signature Animation Sheet</h4>
+<table>
+  <tr><th>Unit</th><th>Idle</th><th>Attack</th><th>Impact VFX</th><th>Lv.5 Extra</th></tr>
+  <tr><td>Bamboo Archer</td><td>Stalks sway; leaves flick like ears</td><td>Top stalk bends back like a bow (0.25 s), snaps forward</td><td>Bamboo arrow with green ribbon trail; pierce sparks per enemy</td><td>Arrows split into 3 at the end of range</td></tr>
+  <tr><td>Puffball Mushroom</td><td>Cap breathes slowly, small spores drift</td><td>Cap squashes down hard (0.12 s), puff</td><td>Green-purple cloud, soft swirling particles, poison decal</td><td>Cloud gets glowing eyes and follows enemies slowly</td></tr>
+  <tr><td>Sunflower Beacon</td><td>Face turns to follow the sun angle</td><td>Petals flare open on each aura pulse</td><td>Warm light rays to buffed towers, lens flare</td><td>Face becomes a tiny sun; heat shimmer ring</td></tr>
+</table>
+
+<h4>7.2 New Synergies</h4>
+<table>
+  <tr><th>Combo</th><th>Reaction</th><th>Effect</th></tr>
+  <tr><td>Poison + Burn</td><td><b>Toxic Blaze</b></td><td>Cloud ignites: 1-time 200% burst, cloud ends</td></tr>
+  <tr><td>Poison + Wet</td><td><b>Spread</b></td><td>Poison spreads to 2 nearby enemies</td></tr>
+  <tr><td>Solar Flare + Laser</td><td><b>Overcharge</b></td><td>Beam ramp builds 2× faster for 4 s</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2>8. New Enemies (4) <span class="tag new">NEW</span></h2>
+<table>
+  <tr><th>Enemy</th><th>Wave</th><th>HP</th><th>Speed</th><th>Trait</th><th>Animation &amp; VFX</th></tr>
+  <tr><td>Aphid Cluster</td><td>3+</td><td>120</td><td>2.6</td><td>Splits into 4 Aphids (25 HP, 3.8 speed) on death</td><td>Wobbly jelly ball; split pops with green goo splash</td></tr>
+  <tr><td>Caterpillar Cocoon</td><td>9+</td><td>300</td><td>2.2</td><td>After 12 s alive, spins a cocoon (2 s, 50% damage taken), hatches into a FLYING Moth (400 HP, 4.0 speed)</td><td>Silk wraps around body in a spiral; hatch bursts with dusty wing powder</td></tr>
+  <tr><td>Termite Gnawer</td><td>13+</td><td>450</td><td>2.4</td><td>When passing a tower within 2 units, gnaws its roots: −20% attack speed for 5 s</td><td>Wood chips fly; the tower’s roots show bite marks and flash red</td></tr>
+  <tr><td>Locust Swarm</td><td>18+</td><td>40 ×20</td><td>4.4</td><td>FLYING; 20 locusts move as one boid flock</td><td>One <code>InstancedMesh</code>; flock ripples and splits around AoE hits</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2 class="pb">9. New Bosses — One per Map <span class="tag new">NEW</span><span class="tag anim">ANIM</span></h2>
+<p>Today every map ends with the Blighted Treant. v3 gives each map its own final boss. The Treant stays on Sunny Backyard.</p>
+<table>
+  <tr><th>Map</th><th>Boss</th><th>HP (Normal)</th><th>Phase 1 (100–60%)</th><th>Phase 2 (60–25%)</th><th>Phase 3 (25–0%)</th></tr>
+  <tr><td>Sunny Backyard</td><td>Blighted Treant Overlord</td><td>65,000</td><td>Root Slam</td><td>Bark shield</td><td>Swarm Summon</td></tr>
+  <tr><td>Enchanted Jungle</td><td>Vinewyrm Hydra</td><td>78,000</td><td>Spits spore balls at towers</td><td>Grows 2 more heads; each head can be targeted</td><td>Heads regrow unless all cut within 6 s</td></tr>
+  <tr><td>Volcano Greenhouse</td><td>Magma Beetle Queen</td><td>90,000</td><td>Leaves lava trail on track (burns slows)</td><td>Calls meteor rain on 3 towers (red rings 1.5 s)</td><td>Shell glows white-hot: immune to fire, weak to ice ×1.5</td></tr>
+  <tr><td>Frosty Allotment (new)</td><td>Frost Moth Empress</td><td>82,000</td><td>Flying; drops frost on towers (−30% speed)</td><td>Wing gust pushes all projectiles sideways 3 s</td><td>Splits into 3 smaller moths</td></tr>
+</table>
+<h4>9.1 Boss Animation Rules</h4>
+<ul>
+  <li>Each boss has an <b>idle loop</b>, a <b>walk cycle</b>, a <b>roar</b> (used at entrance and each phase change), and <b>one attack anim per phase</b>.</li>
+  <li>Every boss attack has a 1.2 s+ telegraph: glow on the body part that will attack, plus a red ground ring.</li>
+  <li><b>Stagger meter:</b> a thin yellow bar under the boss HP. Big hits fill it. When full, boss is stunned 2 s, kneels, and takes +25% damage. Shows a “STAGGERED!” banner.</li>
+  <li>Boss finale (v2 §8.8) plays for every boss, with its own color (Hydra green, Queen orange, Empress ice-blue).</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2>10. Map Upgrades &amp; a 4th Map <span class="tag new">NEW</span><span class="tag up">UPGRADE</span></h2>
+<h3>10.1 New Map: Frosty Allotment (Hard)</h3>
+<ul>
+  <li>Winter vegetable garden: raised wooden beds, frozen pond, snowman, greenhouse with fogged glass.</li>
+  <li><b>Path:</b> one long loop that crosses the frozen pond twice. Enemies on ice slide +20% faster.</li>
+  <li><b>Hazard — Blizzard:</b> every 4th wave, snow covers the map for 20 s. All towers −10% range. Fire towers melt snow around them (circle of clear grass) and are immune.</li>
+  <li><b>Map life:</b> snowflakes, robins hopping on fences, breath puffs from enemies.</li>
+</ul>
+<h3>10.2 Existing Map Upgrades</h3>
+<table>
+  <tr><th>Map</th><th>Add</th></tr>
+  <tr><td>Sunny Backyard</td><td>Garden gnome statues that turn their heads to watch the boss; sprinkler arcs make small rainbows</td></tr>
+  <tr><td>Enchanted Jungle</td><td>Hanging vines sway when flyers pass; giant flower that opens when the wave is cleared</td></tr>
+  <tr><td>Volcano Greenhouse</td><td>Lava bubbles pop with sparks; glass panels rattle on meteor hits</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2>11. Weather v3 — Storms &amp; Seasons <span class="tag up">UPGRADE</span><span class="tag vfx">VFX</span></h2>
+<table>
+  <tr><th>Weather</th><th>Effect</th><th>VFX</th></tr>
+  <tr><td>Thunderstorm (new)</td><td>Every 6 s lightning strikes a random enemy for 8% max HP; all enemies Wet</td><td>Dark clouds, rain, bolt from sky with screen flash (respects flash reduction), thunder 0.4 s after</td></tr>
+  <tr><td>Rainbow (new)</td><td>After rain ends: +10% Seeds from this wave</td><td>Arc across the sky, sparkles on wet grass</td></tr>
+  <tr><td>Snow (Frosty map only)</td><td>Chill effects +20%</td><td>Snow piles up on mounds and fences</td></tr>
+</table>
+<p><b>Seasons:</b> the lobby diorama changes with the real month (spring flowers, summer sun, autumn leaves, winter snow). Cosmetic only.</p>
+
+<!-- ===================================================== -->
+<h2 class="pb">12. New Game Modes <span class="tag new">NEW</span></h2>
+<table>
+  <tr><th>Mode</th><th>How it works</th><th>Reward</th></tr>
+  <tr><td>Weekly Challenge</td><td>Fixed map + fixed rules picked by date (for example “Only Commons”, “Enemies ×2 speed”, “No selling”). Same for every player that week.</td><td>Enchanted Crate + badge</td></tr>
+  <tr><td>Boss Rush</td><td>Fight all 4 bosses back to back with $5,000 start cash and 1 wave of minions between.</td><td>Big Seeds + “Boss Slayer” title</td></tr>
+  <tr><td>Garden Puzzle</td><td>10 handmade levels: fixed cash, fixed units, beat one wave. Teaches synergies.</td><td>Seeds per star (3 stars each)</td></tr>
+  <tr><td>Endless v3</td><td>Every 25 waves the map changes season and adds a random elite modifier to all enemies.</td><td>Bloom Chest (v2) + leaderboard entry</td></tr>
+</table>
+<p><b>Local leaderboard:</b> best wave, fastest clear, and highest single hit per map and difficulty. Stored in the save file. No server needed.</p>
+
+<!-- ===================================================== -->
+<h2>13. Meta Progression v3 <span class="tag new">NEW</span></h2>
+<h3>13.1 Living Garden Hub</h3>
+<ul>
+  <li>The lobby diorama shows every unit you own planted in a small hub garden. New pulls grow in with the §4.1 seed animation the next time you return to the lobby.</li>
+  <li>Click a plant in the hub to open its Inventory page. Godly/Exclusive plants stand on a raised stone stage.</li>
+</ul>
+<h3>13.2 Garden Pass (free)</h3>
+<ul>
+  <li>30 tiers, earned by playing (XP from waves, quests and bosses). Resets every 6 weeks.</li>
+  <li>Rewards: Seeds, Dewdrops, soil skins, new titles, one Mythical unit at tier 30.</li>
+  <li>Tier-up: card flips with a shine sweep and a short fanfare.</li>
+</ul>
+<h3>13.3 Bestiary &amp; Codex</h3>
+<ul>
+  <li>Every enemy has a page: 3D turntable model, HP, speed, weak points, “Best counters” list. Locked until first seen (dark silhouette).</li>
+  <li>Synergy codex lists every reaction; discovered ones show a short looping preview.</li>
+</ul>
+<h3>13.4 Unit Evolution (Exclusive-only path)</h3>
+<p>Fuse a Mastery 10 Godly unit with 3 Dewdrop Crystals to evolve it into a “Prime” variant: same role, new look (golden roots, new idle anim), +12% all stats. Evolution plays a 4 s cutscene in the hub.</p>
+
+<!-- ===================================================== -->
+<h2 class="pb">14. HUD &amp; UI v3 <span class="tag up">UPGRADE</span></h2>
+<p>Keep the current custom garden theme with rounded glossy panels and themed icons. Minimum text size stays <b>14 px</b>.</p>
+<table>
+  <tr><th>Element</th><th>Change</th></tr>
+  <tr><td>Wave timeline</td><td>Thin bar under the top HUD showing the next 5 waves as icons; boss waves marked with a skull; weather and elite tags on top</td></tr>
+  <tr><td>Hotbar cards</td><td>Show a small 3D live portrait (rendered once to a canvas per unit on load); card glows when you can afford it; shake when you can’t</td></tr>
+  <tr><td>Upgrade button</td><td>Shows the next level’s small model change as an icon (e.g. “+1 head”) next to the price</td></tr>
+  <tr><td>Inspector</td><td>Add a mini graph of this tower’s damage per wave; add “Links” row (§5)</td></tr>
+  <tr><td>Kill feed</td><td>Bottom-left, last 4 notable events (“Golem slammed 14 ants”, “Steam Burst ×3”). Fades after 3 s</td></tr>
+  <tr><td>End screen</td><td>MVP tower spotlight: camera flies to the top-damage tower, it does a happy dance, name and damage shown</td></tr>
+  <tr><td>Text scale</td><td>Settings slider 100–140%</td></tr>
+</table>
+
+<h3>14.1 Screen Size Rules</h3>
+<table>
+  <tr><th>Width</th><th>Layout</th></tr>
+  <tr><td>≥ 1600 px (full HD)</td><td>Current layout; Inspector on right side</td></tr>
+  <tr><td>1280–1599 px (laptop)</td><td>Hotbar cards 10% smaller; wave preview tucks under the top bar</td></tr>
+  <tr><td>768–1279 px (tablet)</td><td>Hotbar 2 rows of 3; Inspector becomes a bottom sheet</td></tr>
+  <tr><td>&lt; 768 px (phone)</td><td>See §15</td></tr>
+</table>
+<p>Test every UI change in a real browser at 1366×768 and 1920×1080. Check that no text overflows and no text is under 14 px.</p>
+
+<!-- ===================================================== -->
+<h2>15. Touch &amp; Mobile Support <span class="tag fix">FIX</span><span class="tag new">NEW</span></h2>
+<table>
+  <tr><th>Gesture</th><th>Action</th></tr>
+  <tr><td>Tap card</td><td>Select unit to place</td></tr>
+  <tr><td>Tap lawn</td><td>Show ghost there; tap again (or a “✓ Place” button) to confirm</td></tr>
+  <tr><td>Tap tower</td><td>Open Inspector bottom sheet</td></tr>
+  <tr><td>One-finger drag</td><td>Pan camera</td></tr>
+  <tr><td>Two-finger drag (twist)</td><td>Rotate camera</td></tr>
+  <tr><td>Pinch</td><td>Zoom (8–38)</td></tr>
+  <tr><td>Long press tower</td><td>Show range ring and links</td></tr>
+</table>
+<ul>
+  <li>Phone layout: landscape only (show a “turn your phone” screen in portrait). Hotbar scrolls sideways. Ability buttons sit on the right edge for the thumb.</li>
+  <li>Touch targets at least 44 × 44 px.</li>
+  <li>Default quality on phones = Low; auto-scaler still runs.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2>16. Quality-of-Life Controls <span class="tag new">NEW</span></h2>
+<table>
+  <tr><th>Feature</th><th>Key</th><th>Detail</th></tr>
+  <tr><td>Undo placement</td><td><code>Ctrl+Z</code></td><td>Within 3 s of placing and before it attacks: full refund. Roots pull back quickly (0.3 s)</td></tr>
+  <tr><td>Upgrade max affordable</td><td><code>Shift+U</code></td><td>Upgrades the selected tower as many levels as you can pay for</td></tr>
+  <tr><td>Show all ranges</td><td>hold <code>Alt</code></td><td>All range rings + root links (§5)</td></tr>
+  <tr><td>Cycle towers</td><td><code>Tab</code></td><td>Selects next tower, camera nudges to it</td></tr>
+  <tr><td>Pause</td><td><code>P</code></td><td>Real pause; you can still place and upgrade while paused</td></tr>
+  <tr><td>Targeting memory</td><td>—</td><td>Each unit type remembers the last targeting mode you picked</td></tr>
+  <tr><td>Photo mode</td><td><code>F2</code></td><td>Hides HUD, free camera, depth-of-field slider, save PNG to device</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2 class="pb">17. Audio v3 <span class="tag up">UPGRADE</span></h2>
+<ul>
+  <li><b>Per-map music key:</b> Backyard C major, Jungle D Dorian, Volcano E Phrygian, Frosty A minor with bell layer.</li>
+  <li><b>Boss themes:</b> each boss adds its own lead line on top of the danger layer; phase 3 raises tempo from 100 to 112 BPM.</li>
+  <li><b>Root sounds:</b> placing, upgrading and selling use soft wood creaks and soil crunches made with filtered noise.</li>
+  <li><b>Spatial sound:</b> SFX pan left/right by screen position and get quieter with camera distance (Web Audio <code>StereoPannerNode</code>).</li>
+  <li><b>Combo chord:</b> multi-kills play rising notes of the current key (1st, 3rd, 5th, octave).</li>
+  <li>Separate volume sliders: Music, SFX, UI.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2>18. VFX Recipe Book v3 <span class="tag vfx">VFX</span></h2>
+<p>Add these to <code>VFXRecipes.ts</code>. Counts are for High; Low ×0.25, Medium ×0.6, Ultra ×1.5.</p>
+<table>
+  <tr><th>Recipe</th><th>Count</th><th>Shape</th><th>Life (s)</th><th>Speed</th><th>Gravity</th><th>Colors</th><th>Extras</th></tr>
+  <tr><td>Seed Drop Trail</td><td>8</td><td>spark</td><td>0.3</td><td>0.5</td><td>0</td><td>rarity</td><td>follows falling seed</td></tr>
+  <tr><td>Root Burst Clods</td><td>14</td><td>sphere</td><td>0.6</td><td>2–4</td><td>−14</td><td><code>#5b3a1a</code>, <code>#78350f</code></td><td>crack decal 3 s</td></tr>
+  <tr><td>Root Surge</td><td>1 line</td><td>ribbon</td><td>0.2</td><td>—</td><td>—</td><td>rarity</td><td>travels root → stem</td></tr>
+  <tr><td>Wilt Leaves (sell)</td><td>20</td><td>leaf</td><td>0.8</td><td>1–2</td><td>−2</td><td><code>#a3a35a</code>, <code>#86efac</code></td><td>spiral</td></tr>
+  <tr><td>Dissolve Embers</td><td>10</td><td>spark</td><td>0.5</td><td>0.5–1 up</td><td>+1</td><td>element</td><td>spawn on dissolve edge</td></tr>
+  <tr><td>Overkill Burst</td><td>36</td><td>mixed</td><td>0.7</td><td>5–10</td><td>−10</td><td>enemy color</td><td>hit-stop 30 ms</td></tr>
+  <tr><td>Combo Coin Merge</td><td>N → 1</td><td>disc</td><td>0.5</td><td>—</td><td>—</td><td><code>#fbbf24</code></td><td>coins pull together, big coin flies</td></tr>
+  <tr><td>Poison Cloud</td><td>40</td><td>soft sphere</td><td>4.0</td><td>0.2</td><td>0</td><td><code>#84cc16</code>, <code>#a855f7</code></td><td>slow swirl, poison decal</td></tr>
+  <tr><td>Bamboo Pierce</td><td>6/hit</td><td>spark</td><td>0.25</td><td>3–5</td><td>−6</td><td><code>#bef264</code></td><td>green ribbon trail</td></tr>
+  <tr><td>Solar Flare</td><td>1 burst</td><td>ray fan</td><td>0.6</td><td>—</td><td>—</td><td><code>#fde047</code>, <code>#fb923c</code></td><td>lens flare, 12 rays</td></tr>
+  <tr><td>Lightning Strike</td><td>1 bolt</td><td>jagged line</td><td>0.2</td><td>—</td><td>—</td><td><code>#e0e7ff</code></td><td>8 segments, ground scorch, flash</td></tr>
+  <tr><td>Silk Spiral</td><td>1 ribbon</td><td>ribbon</td><td>2.0</td><td>—</td><td>—</td><td><code>#f5f5f4</code></td><td>wraps cocoon</td></tr>
+  <tr><td>Wing Dust</td><td>50</td><td>sphere tiny</td><td>1.2</td><td>1–3</td><td>−1</td><td><code>#fde68a</code>, <code>#e9d5ff</code></td><td>moth hatch</td></tr>
+  <tr><td>Flower Bloom Ripple</td><td>60</td><td>flower quad</td><td>2.0</td><td>0</td><td>0</td><td>pastel mix</td><td>sweeps down track, wave clear</td></tr>
+  <tr><td>Lava Trail</td><td>decal + 4/s</td><td>spark</td><td>3.0</td><td>0.5 up</td><td>+1</td><td><code>#f97316</code></td><td>Queen boss</td></tr>
+</table>
+
+<!-- ===================================================== -->
+<h2>19. Performance v3 <span class="tag up">UPGRADE</span></h2>
+<table>
+  <tr><th>Item</th><th>Target</th><th>How</th></tr>
+  <tr><td>First-load JS</td><td>≤ 550 KB (now 762 KB)</td><td>Fix F5 code split</td></tr>
+  <tr><td>Enemy draw calls</td><td>1 per enemy type</td><td>Move all enemy rigs to <code>InstancedMesh</code> with per-instance bone offsets for walk cycles</td></tr>
+  <tr><td>Far enemies</td><td>Lower detail</td><td>2 LOD levels: beyond 25 units use a simpler mesh and no walk cycle</td></tr>
+  <tr><td>Root links</td><td>1 draw call</td><td>Single merged ribbon buffer</td></tr>
+  <tr><td>Locust swarm</td><td>20 flyers = 1 draw call</td><td>Boid math in a typed array</td></tr>
+  <tr><td>Shader warm-up</td><td>No stutter on first use</td><td>Call <code>renderer.compile(scene, camera)</code> with every effect material visible once during the loading screen</td></tr>
+  <tr><td>Loading screen</td><td>New</td><td>Seed grows into a sprout as the progress bar fills</td></tr>
+</table>
+<p>v2 §17 budgets stay the same. Phone target: 30 FPS on Low.</p>
+
+<!-- ===================================================== -->
+<h2>20. Testing &amp; CI v3 <span class="tag new">NEW</span></h2>
+<ul>
+  <li>Add <code>vitest</code> (dev dependency). Unit tests for: damage/cooldown/range formulas, upgrade costs, HP scaling, wave bonus, pity counters, trait odds sum to 100%, placement rules, save migration.</li>
+  <li>Add a Playwright smoke test: load page, start Easy match, place Tomato, run wave 1 at 3x, check no console errors and Cash went up.</li>
+  <li>New scripts in <code>package.json</code>: <code>"test": "vitest run"</code>, <code>"test:e2e": "playwright test"</code>.</li>
+  <li>CI (<code>deploy.yml</code>): run <code>npm run typecheck</code>, <code>npm test</code>, then build. Deploy only if all pass.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 class="pb">21. Save Data v2 Migration <span class="tag up">UPGRADE</span></h2>
+<p>New key <code>garden_bastion_save_v2</code>. On load, if only <code>v1</code> exists, migrate and keep the v1 copy for one release.</p>
+<pre>
+v1 → v2 changes
+- potSkin        → soilSkin   (map: "striped" → "garden_loam", "mossy" → "mossy_stone",
+                               "crystal" → "crystal_bed", "golden" → "golden_sand",
+                               "galaxy" → "galaxy_soil")
++ leaderboard    { [mapId]: { [difficulty]: { bestWave, fastestClearSec, topHit } } }
++ gardenPass     { season, xp, tier, claimed: number[] }
++ bestiarySeen   string[]
++ codexSeen      string[]
++ targetingMemory { [unitId]: "first" | "last" | "strongest" | "closest" }
++ settings.textScale, settings.volumeMusic, settings.volumeSfx, settings.volumeUi
+</pre>
+<p>Add <b>Export / Import save</b> in Settings: copies a base64 string the player can paste on another device.</p>
+
+<!-- ===================================================== -->
+<h2>22. AGENTS.md Additions</h2>
+<p>Add these rules under “Non-Negotiable Architecture Rules” (keep rules 1–9):</p>
+<pre>
+10. Plants grow from soil mounds with roots. Never add flowerpots back.
+    Level and rarity are shown through roots, mound and ground details.
+11. Root geometry comes from the 6 shared root shapes built at startup.
+    Never build a new TubeGeometry per tower.
+12. Every enemy death ends with the pooled dissolve material.
+13. Every boss attack needs a telegraph of at least 1.2 s.
+14. Every UI change is checked in a real browser at 1366x768 and 1920x1080:
+    no text overflow, no text under 14 px.
+15. Touch controls must keep working: tap, pinch, two-finger rotate.
+16. Run `npm run typecheck && npm test && npm run build` before committing.
+</pre>
+
+<!-- ===================================================== -->
+<h2>23. Implementation Milestones M9–M16</h2>
+<table>
+  <tr><th>#</th><th>Milestone</th><th>Includes</th><th>Check before moving on</th></tr>
+  <tr><td>M9</td><td>Fix-First</td><td>F1–F5 (§2)</td><td>All five “done when” rules pass</td></tr>
+  <tr><td>M10</td><td>Roots v3</td><td>§3 evolution, rarity roots, root anims, soil skins, save v2 migration (§21)</td><td>Old saves load; no “pot” left in UI text</td></tr>
+  <tr><td>M11</td><td>Place / Upgrade / Sell v3 + Root Network</td><td>§4, §5</td><td>Links show in ghost preview; 60 FPS with 40 links</td></tr>
+  <tr><td>M12</td><td>Enemy feel v3 + new enemies</td><td>§6, §8</td><td>Every enemy has spawn, hit, death; Locust flock is 1 draw call</td></tr>
+  <tr><td>M13</td><td>New units + synergies</td><td>§7</td><td>Each new unit has a full animation sheet row</td></tr>
+  <tr><td>M14</td><td>Bosses + Frosty Allotment + weather v3</td><td>§9, §10, §11</td><td>Each boss beatable on Normal with a fair team; telegraphs ≥ 1.2 s</td></tr>
+  <tr><td>M15</td><td>Modes, meta, HUD, QoL, audio</td><td>§12, §13, §14, §16, §17</td><td>Browser test at both screen sizes</td></tr>
+  <tr><td>M16</td><td>Touch, performance, tests, CI</td><td>§15, §19, §20, §22</td><td>Playwright smoke passes in CI; first-load JS ≤ 550 KB</td></tr>
+</table>
+
+<div class="tip"><b>Deploy reminder:</b> the live site updates only when <code>main</code> changes. If an agent cannot push to <code>main</code>, it pushes a feature branch and the owner merges the pull request on GitHub.</div>
+
+<p style="text-align:center;color:var(--mute);margin-top:30px;font-size:9pt">— End of Specification v3 —</p>
+</body>
+</html>
