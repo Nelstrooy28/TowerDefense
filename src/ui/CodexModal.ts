@@ -4,6 +4,7 @@ import { SYNERGIES } from '../data/SynergyConfig';
 import { MAP_LIST, type DifficultyId } from '../data/MapRegistry';
 import { SaveManager } from '../core/SaveManager';
 import { MeshFactory } from '../rendering/MeshFactory';
+import { BugRigKit, type EnemyRigRefs } from '../rendering/bugs/BugRigKit';
 import { SynthAudio } from '../audio/SynthAudio';
 
 export class CodexModal {
@@ -17,6 +18,10 @@ export class CodexModal {
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(40, 1.5, 0.1, 30);
   private previewGroup = new THREE.Group();
+  private currentRig: EnemyRigRefs | null = null;
+  private playDeathAnim = false;
+  private deathCycleTimer = 0;
+  private walkElapsed = 0;
   private rafId = 0;
   private lastTime = 0;
 
@@ -99,9 +104,14 @@ export class CodexModal {
               `;
             }).join('')}
           </div>
-          <div class="gloss-panel" style="padding:12px;display:flex;flex-direction:column;gap:8px;">
-            <div class="showcase-stage" id="codex-stage" style="height:200px;"></div>
-            <div style="font-size:18px;font-weight:800;">${isSeen ? eDef.name : 'Unknown Pest'}</div>
+          <div class="paper-panel" style="padding:12px;display:flex;flex-direction:column;gap:8px;">
+            <div class="showcase-stage" id="codex-stage" style="height:210px;"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <div style="font-size:18px;font-weight:800;">${isSeen ? eDef.name : 'Unknown Pest'}</div>
+              <button class="leaf-tab-btn ${this.playDeathAnim ? 'active' : ''}" id="codex-death-toggle">
+                ${this.playDeathAnim ? 'Walk Loop' : 'Play Death Anim'}
+              </button>
+            </div>
             <div style="font-size:14px;">Base HP: ${eDef.baseHP} • Speed: ${eDef.speed} u/s</div>
             <div style="font-size:14px;color:#cbd5e1;">${eDef.traitSummary}</div>
             <div style="font-size:14px;color:#4ade80;"><strong>Best counters:</strong> ${eDef.bestCounters}</div>
@@ -112,8 +122,17 @@ export class CodexModal {
       content.querySelectorAll('[data-eid]').forEach((btn) => {
         btn.addEventListener('click', () => {
           this.selectedEnemy = (btn as HTMLElement).dataset.eid as EnemyTypeId;
+          this.playDeathAnim = false;
+          this.deathCycleTimer = 0;
           this.render();
         });
+      });
+
+      content.querySelector('#codex-death-toggle')?.addEventListener('click', () => {
+        this.playDeathAnim = !this.playDeathAnim;
+        this.deathCycleTimer = 0;
+        this.render();
+        SynthAudio.play('click');
       });
 
       this.stageWrap = content.querySelector('#codex-stage') as HTMLDivElement;
@@ -123,7 +142,7 @@ export class CodexModal {
       }
       this.stageWrap.appendChild(this.renderer.domElement);
       const w = this.stageWrap.clientWidth || 320;
-      const h = this.stageWrap.clientHeight || 200;
+      const h = this.stageWrap.clientHeight || 210;
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(w, h, false);
@@ -134,8 +153,10 @@ export class CodexModal {
         for (const m of rig.bodyMaterials) {
           m.color.setHex(0x090d16);
           m.emissive.setHex(0x000000);
+          m.emissiveIntensity = 0;
         }
       }
+      this.currentRig = rig;
       this.previewGroup.add(rig.root);
     } else if (this.tab === 'synergies') {
       const seen = SaveManager.data.codexSeen;
@@ -191,7 +212,38 @@ export class CodexModal {
       const dt = Math.min(0.05, (now - this.lastTime) / 1000);
       this.lastTime = now;
       if (this.tab === 'bestiary' && this.renderer) {
-        this.previewGroup.rotation.y += dt * 0.7;
+        this.walkElapsed += dt;
+        this.previewGroup.rotation.y += dt * 0.65;
+        if (this.currentRig) {
+          if (this.playDeathAnim) {
+            this.deathCycleTimer += dt;
+            if (this.deathCycleTimer >= 1.2) {
+              this.deathCycleTimer = 0;
+              this.currentRig.bodyGroup.rotation.set(0, 0, 0);
+              this.currentRig.bodyGroup.position.set(0, 0, 0);
+              this.currentRig.bodyGroup.scale.set(1, 1, 1);
+            }
+            BugRigKit.animateDeathPose(
+              this.currentRig,
+              this.selectedEnemy,
+              Math.min(1, this.deathCycleTimer / 0.85),
+              dt
+            );
+          } else {
+            BugRigKit.animateAlive(
+              this.currentRig,
+              ENEMIES[this.selectedEnemy].speed,
+              this.walkElapsed,
+              dt,
+              false,
+              false,
+              0,
+              1.0,
+              false,
+              false
+            );
+          }
+        }
         this.renderer.render(this.scene, this.camera);
       }
       this.rafId = requestAnimationFrame(tick);

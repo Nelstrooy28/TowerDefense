@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { EventBus } from '../core/EventBus';
 import { SaveManager } from '../core/SaveManager';
-import { TimeScale } from '../core/TimeScale';
+import { TimeScale, type GameSpeed } from '../core/TimeScale';
+import { QualityManager } from '../core/QualityManager';
+import { InputActions } from '../core/InputActions';
 import { getUnitById } from '../data/UnitRegistry';
 import { createHologramGhostMaterial } from '../rendering/ShaderLib';
 import { MeshFactory } from '../rendering/MeshFactory';
@@ -17,6 +19,8 @@ export class InputManager {
   public activeSlotIndex: number | null = null;
   public selectedTower: TowerEntity | null = null;
   public photoMode = false;
+  public altOverlayActive = false;
+  public placementYaw = 0;
 
   // Hologram placement preview group
   private previewGroup = new THREE.Group();
@@ -30,6 +34,9 @@ export class InputManager {
   // Alt-held all-ranges pool (up to 40 towers) (§16)
   private allRangeRings: THREE.Mesh[] = [];
   private selectedRangeRing: THREE.Mesh;
+
+  // Blocked placement cursor label (Doc 03 §4)
+  private reasonTipEl: HTMLDivElement;
 
   // Touch confirmation state (§15)
   private touchPendingPos: { x: number; z: number } | null = null;
@@ -89,6 +96,10 @@ export class InputManager {
       this.allRangeRings.push(m);
     }
 
+    this.reasonTipEl = document.createElement('div');
+    this.reasonTipEl.className = 'cursor-reason-tip hidden';
+    document.body.appendChild(this.reasonTipEl);
+
     this.touchConfirmBtn = document.createElement('button');
     this.touchConfirmBtn.className = 'btn btn-green hidden touch-place-btn';
     this.touchConfirmBtn.textContent = '✓ Place Unit';
@@ -99,6 +110,7 @@ export class InputManager {
         if (uId) {
           const placed = this.match.placeTower(uId, this.touchPendingPos.x, this.touchPendingPos.z);
           if (placed) {
+            placed.rig.root.rotation.y = this.placementYaw;
             this.selectSlot(null);
             this.selectTower(placed);
           }
@@ -118,6 +130,7 @@ export class InputManager {
   public selectSlot(slotIndex: number | null): void {
     this.activeSlotIndex = slotIndex;
     this.clearTouchConfirm();
+    this.reasonTipEl.classList.add('hidden');
     if (this.ghostMeshGroup) {
       this.previewGroup.remove(this.ghostMeshGroup);
       this.ghostMeshGroup = null;
@@ -141,6 +154,7 @@ export class InputManager {
           obj.castShadow = false;
         }
       });
+      rig.root.rotation.y = this.placementYaw;
       this.ghostMeshGroup = rig.root;
       this.previewGroup.add(this.ghostMeshGroup);
       this.rangeRing.scale.setScalar(Math.max(1, unit.rangeBase));
@@ -171,6 +185,7 @@ export class InputManager {
   }
 
   private setAltOverlay(active: boolean): void {
+    this.altOverlayActive = active;
     this.match.rootNetwork.altHeld = active;
     this.match.rootNetwork.computeLinks(this.match.towers);
     for (let i = 0; i < this.allRangeRings.length; i++) {
@@ -191,6 +206,32 @@ export class InputManager {
     }
   }
 
+  public update(_dt: number): void {
+    if (!this.match.inMatch || this.match.matchEnded) return;
+    if (this.selectedTower) {
+      if (
+        InputActions.isDown('upgrade') &&
+        !InputActions.wasHoldFired('upgrade') &&
+        InputActions.getHoldMs('upgrade') >= 250
+      ) {
+        InputActions.consumeHoldFire('upgrade');
+        this.match.upgradeTower(this.selectedTower);
+        this.selectTower(this.selectedTower);
+      }
+      if (
+        QualityManager.settings.holdToSell &&
+        InputActions.isDown('sell') &&
+        !InputActions.wasHoldFired('sell') &&
+        InputActions.getHoldMs('sell') >= 400
+      ) {
+        InputActions.consumeHoldFire('sell');
+        const t = this.selectedTower;
+        this.selectTower(null);
+        this.match.sellTower(t);
+      }
+    }
+  }
+
   private bindEvents(): void {
     this.canvas.addEventListener('pointermove', (e) => {
       if (!this.match.inMatch || e.pointerType === 'touch') return;
@@ -198,24 +239,31 @@ export class InputManager {
       if (pt) this.match.collectSunCoinsNearPoint(pt.x, pt.z, 2.2);
       if (this.activeSlotIndex !== null) {
         this.updatePreviewAtClientPos(e.clientX, e.clientY);
+      } else {
+        this.reasonTipEl.classList.add('hidden');
       }
     });
 
     this.canvas.addEventListener('pointerdown', (e) => {
-      // Living Hub Garden click -> open Inventory (§13.1)
       if (!this.match.inMatch && e.button === 0) {
-        this.updateNdc(e.clientX, e.clientY);
-        this.raycaster.setFromCamera(this.pointerNdc, this.match.engine.cameraRig.camera);
-        for (const hp of this.match.hubPlants) {
-          if (this.raycaster.intersectObject(hp.root, true).length > 0) {
-            EventBus.emit('ui:open_unit_inventory', { unitId: hp.unitId });
-            return;
-          }
-        }
+        this.match.hubWorld.handleCanvasClick(
+          e.clientX,
+          e.clientY,
+          this.match.engine.cameraRig.camera,
+          (id) => this.match.onHubStationInteract?.(id)
+        );
         return;
       }
 
-      if (!this.match.inMatch || e.button !== 0) return;
+      if (!this.match.inMatch) return;
+
+      // Right-click in placement mode cancels cleanly (GTD Doc 04 §2.1)
+      if (e.button === 2 && this.activeSlotIndex !== null) {
+        this.selectSlot(null);
+        return;
+      }
+
+      if (e.button !== 0) return;
 
       // Touch two-step placement (§15)
       if (e.pointerType === 'touch' && this.activeSlotIndex !== null) {
@@ -242,6 +290,7 @@ export class InputManager {
         if (pos) {
           const placed = this.match.placeTower(unitId, pos.x, pos.z);
           if (placed) {
+            placed.rig.root.rotation.y = this.placementYaw;
             this.selectSlot(null);
             this.selectTower(placed);
           }
@@ -260,6 +309,15 @@ export class InputManager {
           hitTower = t;
         }
       }
+
+      // GTD Shift+Click on tower -> instant upgrade (Doc 04 §2.1)
+      if (hitTower && e.shiftKey) {
+        this.selectTower(hitTower);
+        this.match.upgradeTower(hitTower);
+        this.selectTower(hitTower);
+        return;
+      }
+
       this.selectTower(hitTower);
 
       if (e.pointerType === 'touch' && hitTower) {
@@ -275,78 +333,156 @@ export class InputManager {
       }
     });
 
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'AltLeft' || e.code === 'AltRight') {
-        e.preventDefault();
-        if (this.match.inMatch) this.setAltOverlay(true);
-      }
+    // Centralized Keybinds via InputActions (AGENTS Rule 22)
+    InputActions.onDown('show_ranges', (_m, e) => {
+      if (!this.match.inMatch) return false;
+      e?.preventDefault();
+      this.setAltOverlay(true);
+      return false;
+    });
+    InputActions.onUp('show_ranges', () => {
+      this.setAltOverlay(false);
+    });
 
-      // F2 Photo Mode (§16)
-      if (e.code === 'F2') {
-        e.preventDefault();
-        this.photoMode = !this.photoMode;
-        this.match.engine.cameraRig.photoMode = this.photoMode;
-        document.getElementById('ui-root')?.classList.toggle('photo-mode-hidden', this.photoMode);
-        EventBus.emit('toast:show', {
-          title: this.photoMode ? '📷 Photo Mode ON (F2 to exit)' : 'Photo Mode OFF',
-          color: '#38bdf8',
-        });
-        return;
-      }
+    InputActions.onDown('photo_mode', (_m, e) => {
+      e?.preventDefault();
+      this.photoMode = !this.photoMode;
+      this.match.engine.cameraRig.photoMode = this.photoMode;
+      document.getElementById('ui-root')?.classList.toggle('photo-mode-hidden', this.photoMode);
+      EventBus.emit('toast:show', {
+        title: this.photoMode ? '📷 Photo Mode ON' : 'Photo Mode OFF',
+        color: '#38bdf8',
+      });
+      return true;
+    });
 
-      if (!this.match.inMatch) return;
+    InputActions.onDown('pause', () => {
+      if (!this.match.inMatch) return false;
+      TimeScale.togglePause();
+      return true;
+    });
 
-      if (e.code === 'KeyP') {
-        TimeScale.togglePause();
-      } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
-        e.preventDefault();
-        this.match.undoLastPlacement();
-      } else if (e.code === 'Tab') {
-        e.preventDefault();
-        if (this.match.towers.length > 0) {
-          const curIdx = this.selectedTower ? this.match.towers.indexOf(this.selectedTower) : -1;
-          const next = this.match.towers[(curIdx + 1) % this.match.towers.length];
-          this.selectTower(next);
-        }
-      } else if (e.code >= 'Digit1' && e.code <= 'Digit6') {
-        const idx = Number(e.code.replace('Digit', '')) - 1;
-        this.selectSlot(this.activeSlotIndex === idx ? null : idx);
-      } else if (e.code === 'Escape') {
+    InputActions.onDown('undo_place', (_m, e) => {
+      if (!this.match.inMatch) return false;
+      e?.preventDefault();
+      this.match.undoLastPlacement();
+      return true;
+    });
+
+    InputActions.onDown('rotate', () => {
+      if (!this.match.inMatch || this.activeSlotIndex === null) return false;
+      this.placementYaw = (this.placementYaw + Math.PI / 4) % (Math.PI * 2);
+      if (this.ghostMeshGroup) this.ghostMeshGroup.rotation.y = this.placementYaw;
+      return true;
+    });
+
+    InputActions.onDown(
+      'cancel',
+      (_m, e) => {
+        if (!this.match.inMatch) return false;
         if (this.activeSlotIndex !== null || this.selectedTower !== null) {
+          e?.preventDefault();
           this.selectSlot(null);
           this.selectTower(null);
+          return true;
         }
-      } else if (e.code === 'KeyM') {
-        EventBus.emit('ui:toggle_manager', undefined);
-      } else if ((e.code === 'KeyU' || e.code === 'KeyF') && this.selectedTower) {
-        if (e.shiftKey && e.code === 'KeyU') {
-          this.match.upgradeMaxAffordable(this.selectedTower);
-        } else {
-          this.match.upgradeTower(this.selectedTower);
-        }
+        return false;
+      },
+      10
+    );
+
+    const slots: Array<'hotbar_1' | 'hotbar_2' | 'hotbar_3' | 'hotbar_4' | 'hotbar_5' | 'hotbar_6'> = [
+      'hotbar_1',
+      'hotbar_2',
+      'hotbar_3',
+      'hotbar_4',
+      'hotbar_5',
+      'hotbar_6',
+    ];
+    slots.forEach((act, idx) => {
+      InputActions.onDown(act, () => {
+        if (!this.match.inMatch) return false;
+        this.selectSlot(this.activeSlotIndex === idx ? null : idx);
+        return true;
+      });
+    });
+
+    InputActions.onDown('select_next_tower', (_m, e) => {
+      if (!this.match.inMatch || this.match.towers.length === 0) return false;
+      e?.preventDefault();
+      const curIdx = this.selectedTower ? this.match.towers.indexOf(this.selectedTower) : -1;
+      const next = this.match.towers[(curIdx + 1) % this.match.towers.length];
+      this.selectTower(next);
+      return true;
+    });
+
+    InputActions.onDown('manager', (_m, e) => {
+      if (!this.match.inMatch) return false;
+      e?.preventDefault();
+      EventBus.emit('ui:toggle_manager', undefined);
+      return true;
+    });
+
+    InputActions.onDown('upgrade_max', () => {
+      if (!this.match.inMatch || !this.selectedTower) return false;
+      this.match.upgradeMaxAffordable(this.selectedTower);
+      this.selectTower(this.selectedTower);
+      return true;
+    });
+
+    // Release tap (< 250ms) also upgrades cleanly if hold didn't fire yet
+    InputActions.onUp('upgrade', () => {
+      if (!this.match.inMatch || !this.selectedTower) return false;
+      if (!InputActions.wasHoldFired('upgrade')) {
+        this.match.upgradeTower(this.selectedTower);
         this.selectTower(this.selectedTower);
-      } else if ((e.code === 'KeyX' || e.code === 'Backspace') && this.selectedTower) {
-        const t = this.selectedTower;
-        this.selectTower(null);
-        this.match.sellTower(t);
-      } else if (e.code === 'Space') {
-        e.preventDefault();
-        if (this.match.gameMode !== 'survival') {
-          this.match.skipWave();
-        }
-      } else if (e.code === 'KeyQ' || (e.code === 'KeyE' && this.match.gameMode !== 'survival') || e.code === 'KeyR') {
-        const idx = e.code === 'KeyQ' ? 0 : e.code === 'KeyE' ? 1 : 2;
+      }
+      return true;
+    });
+
+    InputActions.onDown('sell', () => {
+      if (!this.match.inMatch || !this.selectedTower) return false;
+      if (QualityManager.settings.holdToSell) return false; // Handled in update()
+      const t = this.selectedTower;
+      this.selectTower(null);
+      this.match.sellTower(t);
+      return true;
+    });
+
+    InputActions.onDown('target_cycle', () => {
+      if (!this.match.inMatch || !this.selectedTower) return false;
+      this.selectedTower.cycleTargeting();
+      this.selectTower(this.selectedTower);
+      return true;
+    });
+
+    InputActions.onDown('speed_cycle', () => {
+      if (!this.match.inMatch) return false;
+      const next: GameSpeed = TimeScale.speed === 1 ? 2 : TimeScale.speed === 2 ? 3 : 1;
+      TimeScale.setSpeed(next);
+      EventBus.emit('match:state_changed', undefined);
+      return true;
+    });
+
+    InputActions.onDown('start_wave', (_m, e) => {
+      if (!this.match.inMatch) return false;
+      if (this.match.gameMode === 'survival' && InputActions.isDown('survival_dash')) return false;
+      e?.preventDefault();
+      this.match.skipWave();
+      return true;
+    });
+
+    const abilityActions: Array<'ability_1' | 'ability_2' | 'ability_3'> = ['ability_1', 'ability_2', 'ability_3'];
+    abilityActions.forEach((act, idx) => {
+      InputActions.onDown(act, () => {
+        if (!this.match.inMatch) return false;
         const abilityTowers = this.match.towers.filter((t) => t.def.ability && t.level >= 4);
         if (abilityTowers[idx]) {
           this.match.abilities.activate(abilityTowers[idx], this.match.towers, this.match.enemies);
+          return true;
         }
-      }
-    });
-
-    window.addEventListener('keyup', (e) => {
-      if (e.code === 'AltLeft' || e.code === 'AltRight') {
-        this.setAltOverlay(false);
-      }
+        return false;
+      });
     });
   }
 
@@ -391,6 +527,15 @@ export class InputManager {
     this.ghostMat.uniforms.uColor.value.setHex(colHex);
     (this.rangeRing.material as THREE.MeshBasicMaterial).color.setHex(colHex);
     (this.footprintRing.material as THREE.MeshBasicMaterial).color.setHex(colHex);
+
+    if (!check.valid && check.reason) {
+      this.reasonTipEl.textContent = check.reason;
+      this.reasonTipEl.style.left = `${Math.min(window.innerWidth - 220, cx + 16)}px`;
+      this.reasonTipEl.style.top = `${Math.min(window.innerHeight - 44, cy + 16)}px`;
+      this.reasonTipEl.classList.remove('hidden');
+    } else {
+      this.reasonTipEl.classList.add('hidden');
+    }
 
     // §5 Root Network Ghost Link Preview
     this.match.rootNetwork.computeLinks(this.match.towers, unitId, pt.x, pt.z);

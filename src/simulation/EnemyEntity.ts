@@ -96,8 +96,10 @@ export class EnemyEntity {
   private eliteTagEl: HTMLSpanElement;
   private hasTakenDamage = false;
 
-  private readonly _tangent = new THREE.Vector3();
+  public readonly _tangent = new THREE.Vector3();
   private readonly _proj = new THREE.Vector3();
+  public isMiniBoss = false;
+  private prevYaw = 0;
 
   constructor(
     type: EnemyTypeId,
@@ -107,7 +109,8 @@ export class EnemyEntity {
     eliteMod: EliteModifierId | null = null,
     scene: THREE.Scene,
     uiContainer: HTMLElement,
-    speedMult = 1.0
+    speedMult = 1.0,
+    isMiniBoss = false
   ) {
     this.id = `en_${NEXT_ENEMY_ID++}`;
     this.type = type;
@@ -117,8 +120,10 @@ export class EnemyEntity {
     this.isElite = isElite;
     this.eliteMod = eliteMod;
     this.speedOverrideMult = speedMult;
+    this.isMiniBoss = isMiniBoss;
 
     let hp = scaledHp;
+    if (isMiniBoss) hp *= 12;
     if (isElite) {
       hp *= 1.8;
       if (eliteMod) hp *= ELITE_MODIFIERS[eliteMod].hpMult;
@@ -139,7 +144,7 @@ export class EnemyEntity {
       this.eliteShieldHp = this.eliteShieldMax;
     }
 
-    this.rig = MeshFactory.buildEnemyRig(type, isElite, eliteMod);
+    this.rig = MeshFactory.buildEnemyRig(type, isElite, eliteMod, isMiniBoss);
     scene.add(this.rig.root);
 
     this.hpEl = document.createElement('div');
@@ -164,12 +169,15 @@ export class EnemyEntity {
     this.statusEl = this.hpEl.querySelector('.status-icons') as HTMLDivElement;
     this.eliteTagEl = this.hpEl.querySelector('.elite-badge') as HTMLSpanElement;
 
-    if (isElite && eliteMod) {
+    if (isMiniBoss) {
+      this.eliteTagEl.textContent = `👑 ${this.def.name.split(' ')[1]?.toUpperCase() ?? 'BUG'} KING`;
+      this.eliteTagEl.style.color = '#fde047';
+    } else if (isElite && eliteMod) {
       this.eliteTagEl.textContent = eliteMod.toUpperCase();
       this.eliteTagEl.style.color = ELITE_MODIFIERS[eliteMod].color;
     }
 
-    this.updateTransform();
+    this.updateTransform(1);
   }
 
   public mergeSwarmAnt(extraHp: number): void {
@@ -442,7 +450,7 @@ export class EnemyEntity {
       this.hpEl.style.display = 'none';
     }
 
-    this.updateTransform();
+    const turnDelta = this.updateTransform(dt);
     const distSq = cameraPos.distanceToSquared(this.position);
     const skipLodSubAnim = distSq > 625; // §19 LOD > 25 units
 
@@ -455,20 +463,28 @@ export class EnemyEntity {
       this.freezeTimer > 0,
       this.isBurrowed,
       this.staggerTimer > 0,
-      skipLodSubAnim
+      skipLodSubAnim,
+      this.hp / Math.max(1, this.maxHp),
+      turnDelta
     );
 
     return { burnTickDmg, bleedTickDmg, poisonTickDmg };
   }
 
-  private updateTransform(): void {
+  private updateTransform(dt = 0.016): number {
     const t = THREE.MathUtils.clamp(this.progress, 0, 1);
     this.spline.getPointAt(t, this.position);
     this.spline.getTangentAt(t, this._tangent);
     this.rig.root.position.copy(this.position);
-    const lookX = this.position.x + this._tangent.x;
-    const lookZ = this.position.z + this._tangent.z;
-    this.rig.root.lookAt(lookX, this.position.y, lookZ);
+
+    const desiredYaw = Math.atan2(this._tangent.x, this._tangent.z);
+    let diff = desiredYaw - this.prevYaw;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    const smooth = dt >= 0.9 ? 1 : 1 - Math.exp(-10 * dt);
+    this.prevYaw += diff * smooth;
+    this.rig.root.rotation.y = this.prevYaw;
+    return diff;
   }
 
   public updateBillboardUI(camera: THREE.Camera): void {

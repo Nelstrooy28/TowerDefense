@@ -26,7 +26,7 @@ export type SoilSkinId =
   | 'galaxy_soil'
   | 'lava_rock';
 
-export type TargetingModeValue = 'First' | 'Strongest' | 'Last' | 'Closest';
+export type TargetingModeValue = 'First' | 'Strongest' | 'Last' | 'Closest' | 'Weakest';
 
 export interface OwnedUnitData {
   unitId: string;
@@ -161,6 +161,7 @@ export interface SaveStateV3 extends Omit<SaveStateV2, 'version'> {
   fastSummons: boolean;
   autoRecycleCommons: boolean;
   hourlyStreak: number;
+  avatarColors?: { hat: number; shirt: number; can: number };
 }
 
 function getTodayDateString(): string {
@@ -313,6 +314,7 @@ export function createDefaultSaveV3(): SaveStateV3 {
     fastSummons: false,
     autoRecycleCommons: false,
     hourlyStreak: 0,
+    avatarColors: { hat: 0xfde047, shirt: 0x22c55e, can: 0x38bdf8 },
   };
 }
 

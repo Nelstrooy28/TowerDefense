@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { QualityManager } from '../core/QualityManager';
-import { VFX_RECIPES, type ParticleShape, type VFXRecipeId } from '../data/VFXRecipes';
+import { getRecipeCountForTier, VFX_RECIPES, type ParticleShape, type VFXRecipeId } from '../data/VFXRecipes';
 import { createShockwaveMaterial } from './ShaderLib';
 import { ProceduralTextures } from './ProceduralTextures';
 import { easeOutCubic } from './Easing';
@@ -435,11 +435,20 @@ export class VFXManager {
     overrideColor?: number
   ): void {
     const r = VFX_RECIPES[recipeId];
-    const count = QualityManager.scaleParticleCount(r.countHigh);
-    const globalCap = QualityManager.preset.particleCap;
-    if (this.activeParticleCount >= globalCap) return;
+    if (r.respectsReducedMotion && QualityManager.settings.reducedMotion) return;
 
-    const toSpawn = Math.min(count, globalCap - this.activeParticleCount);
+    const globalCap = QualityManager.preset.particleCap;
+    const ratio = this.activeParticleCount / Math.max(1, globalCap);
+    // VFX Budget Manager: shed lowest-priority particles first when approaching tier cap
+    if (r.priority === 'ambient' && ratio >= 0.78) return;
+    if (r.priority === 'normal' && ratio >= 0.92) return;
+    if (this.activeParticleCount >= globalCap && r.priority !== 'critical') return;
+
+    const count = getRecipeCountForTier(r, QualityManager.settings.tier);
+    const hardCap = r.priority === 'critical' ? globalCap + 120 : globalCap;
+    const toSpawn = Math.min(count, Math.max(0, hardCap - this.activeParticleCount));
+    if (toSpawn <= 0) return;
+
     for (let i = 0; i < toSpawn; i++) {
       const shape = r.shapes[i % r.shapes.length];
       const pool = this.particles[shape];
@@ -487,7 +496,19 @@ export class VFXManager {
     }
   }
 
-  public spawnShockwave(x: number, y: number, z: number, maxRadius: number, colorHex: number, duration = 0.5): void {
+  public spawnShockwave(
+    x: number,
+    y: number,
+    z: number,
+    maxRadius: number,
+    colorHex: number,
+    duration = 0.5,
+    critical = false
+  ): void {
+    let activeSw = 0;
+    for (const sw of this.shockwaves) if (sw.active) activeSw++;
+    if (!critical && activeSw >= 20) return; // Reserve last 4 slots for critical telegraphs & bosses
+
     for (const sw of this.shockwaves) {
       if (!sw.active) {
         sw.active = true;

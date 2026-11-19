@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { QualityManager } from '../core/QualityManager';
 import { easeOutBack, easeOutCubic } from './Easing';
 
 export type PopupKind = 'normal' | 'burn' | 'freeze' | 'cash' | 'crit' | 'synergy';
@@ -62,6 +63,10 @@ export class FloatingTextManager {
     enemyId = '',
     customText?: string
   ): void {
+    const mode = QualityManager.settings.damageNumberMode ?? 'all';
+    if (mode === 'off' && !customText && kind !== 'cash') return;
+    if (mode === 'big' && !customText && kind === 'normal' && amount < 120) return;
+
     // §8.3.4 Merge hits on the same enemy within 0.15 s
     if (enemyId && !customText && (kind === 'normal' || kind === 'burn' || kind === 'freeze')) {
       for (const item of this.pool) {

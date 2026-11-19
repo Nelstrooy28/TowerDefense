@@ -419,11 +419,26 @@ export const REDEEM_CODES: Record<string, RedeemCodeDef> = {
   BASTION4: { code: 'BASTION4', seeds: 350, dewdrops: 2, tickets: 2, label: 'v4 Launch Gift (+350 🌱, +2 💧, +2 🎟)' },
   BLOOM: { code: 'BLOOM', seeds: 150, dewdrops: 1, tickets: 1, label: 'Spring Bloom (+150 🌱, +1 💧, +1 🎟)' },
   GARDENER: { code: 'GARDENER', seeds: 250, dewdrops: 0, tickets: 1, label: 'Survival Kit (+250 🌱, +1 🎟)' },
+  BASTION5: { code: 'BASTION5', seeds: 400, dewdrops: 3, tickets: 2, label: 'v5 Launch Gift (+400 🌱, +3 💧, +2 🎟)' },
 };
 
-export const CURRENT_VERSION = '4.0.0';
+export const CURRENT_VERSION = '5.0.0';
 
 export const WHATS_NEW_NOTES = [
+  {
+    version: 'v5.0.0 — Overgrown Polish & Walkable Hub',
+    highlights: [
+      'Walkable 3D Garden Lobby Hub: walk with WASD / Shift / Space and press [E] at 8 interactive garden stations, or press [M] anytime for the Fast Wooden Sign Menu.',
+      'BugRigKit (20 Rebuilt Enemies + Mini-Boss Kings): Roblox-blocky rounded bug silhouettes, blinking rectangle eyes, tripod/worm/fly gaits, low-HP sweat drops, and 15 custom death animations.',
+      'VFX Upgrade Across Every System: Lv0 / Lv3 / Lv5 tier progressions for all 20 units, rune-glyph Summon circles + variant reveals, element color language, boss roar/corruption peel, and VFX Budget Manager.',
+      'GTD Controls & Presets (Keybinds.ts): GTD preset default (Shift+Click / hold [E] upgrade, [Q] cancel, [R] rotate, [X] sell, [Z/C/V] abilities, [Tab] Unit Manager, [F] speed), full Settings rebinding + F1 overlay.',
+      'Unit Manager v5 & HUD v5: Priority circles (①②③), auto-upgrade queue with Cash Reserve slider, Weakest targeting, Bulk Shift+Select, bottom-right Inspector, rarity frames, and 250ms smart tooltips.',
+    ],
+    balanceNotes: [
+      'All 7 automated balance suite benchmarks preserved cleanly alongside Mini-Boss King waves.',
+      'VFX Budget Manager keeps Medium quality <= 1,500 particles at Wave 30 while preserving all crits, telegraphs, and cash drops.',
+    ],
+  },
   {
     version: 'v4.0.0 — Overgrown Rebirth',
     highlights: [

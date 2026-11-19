@@ -208,6 +208,10 @@ export class GrassField {
     if (this.stamps.length > 8) this.stamps.shift();
   }
 
+  public setVisible(visible: boolean): void {
+    if (this.mesh) this.mesh.visible = visible;
+  }
+
   public update(dt: number, leadEnemyX?: number, leadEnemyZ?: number): void {
     if (!this.mesh || !this.mesh.visible) return;
 

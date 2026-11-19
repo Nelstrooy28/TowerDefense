@@ -89,6 +89,21 @@ export interface QualitySettings {
   muteWhenHidden?: boolean;
   edgePan?: boolean;
   invertOrbit?: boolean;
+  // v5 Settings
+  uiScale?: number; // 80..120
+  damageNumberMode?: 'all' | 'big' | 'off';
+  holdToSell?: boolean;
+  holdToInteract?: boolean;
+  autoUpgradeDefault?: boolean;
+  cashReserve?: number;
+  pauseWhileManagerOpen?: boolean;
+  startInFastMenu?: boolean;
+  subtitlesEnabled?: boolean;
+  keybinds?: {
+    preset: 'gtd' | 'classic' | 'left_hand';
+    custom: Record<string, [string, string]>;
+    promptSeen?: boolean;
+  };
 }
 
 function isMobilePhone(): boolean {
@@ -121,6 +136,16 @@ class QualityManagerImpl {
     muteWhenHidden: true,
     edgePan: false,
     invertOrbit: false,
+    uiScale: 100,
+    damageNumberMode: 'all',
+    holdToSell: false,
+    holdToInteract: false,
+    autoUpgradeDefault: false,
+    cashReserve: 0,
+    pauseWhileManagerOpen: false,
+    startInFastMenu: false,
+    subtitlesEnabled: true,
+    keybinds: { preset: 'gtd', custom: {}, promptSeen: false },
   };
 
   private slowFramesAccum = 0;
@@ -135,8 +160,15 @@ class QualityManagerImpl {
   public applySettings(partial: Partial<QualitySettings>, notify = true): void {
     const prevTier = this.settings.tier;
     Object.assign(this.settings, partial);
+    if (partial.showDamageNumbers === false && partial.damageNumberMode === undefined) {
+      this.settings.damageNumberMode = 'off';
+    }
     if (typeof document !== 'undefined') {
-      document.documentElement.style.setProperty('--ui-scale', `${(this.settings.textScale ?? 100) / 100}`);
+      const combined = Math.max(
+        0.8,
+        Math.min(1.4, ((this.settings.textScale ?? 100) / 100) * ((this.settings.uiScale ?? 100) / 100))
+      );
+      document.documentElement.style.setProperty('--ui-scale', `${combined.toFixed(3)}`);
     }
     if (notify && prevTier !== this.settings.tier) {
       EventBus.emit('quality:changed', { tier: this.settings.tier, autoDropped: false });

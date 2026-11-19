@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { CameraRig } from './CameraRig';
 import { QualityManager } from './QualityManager';
+import { InputActions } from './InputActions';
 import { EventBus } from './EventBus';
 import { PostFXController } from '../rendering/PostFX';
 import { ProceduralTextures } from '../rendering/ProceduralTextures';
@@ -122,14 +123,13 @@ export class Engine {
     this.resize();
 
     window.addEventListener('resize', () => this.resize());
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'F3') {
-        e.preventDefault();
-        this.debugVisible = !this.debugVisible;
-        if (this.debugEl) {
-          this.debugEl.classList.toggle('hidden', !this.debugVisible);
-        }
+    InputActions.onDown('debug_overlay', (_m, e) => {
+      e?.preventDefault();
+      this.debugVisible = !this.debugVisible;
+      if (this.debugEl) {
+        this.debugEl.classList.toggle('hidden', !this.debugVisible);
       }
+      return true;
     });
 
     EventBus.on('quality:changed', () => this.applyQualityPreset());

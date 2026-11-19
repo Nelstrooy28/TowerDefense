@@ -34,6 +34,10 @@
 18. Every screen is a Screen class registered in `src/ui/ScreenRouter.ts`. Screens open and close through the router only, so Back/Esc always works.
 19. Maps are built from `MapLayout` data + the shared `PropKit`. No one-off meshes inside map code.
 20. Buttons use the shared garden button styles (leaf, wood sign, seed pod). No plain rectangle buttons with a thin border.
+21. Every enemy is built with `BugRigKit` (`src/rendering/bugs/`). No hand-built enemy meshes elsewhere.
+22. Every key action goes through `src/core/Keybinds.ts`. Never read `e.code` directly in game or UI code.
+23. Every new VFX has a Low/Medium/High version in `VFXRecipes.ts`.
+24. Every button shows its key hint (e.g. `Upgrade [E]`) when a keyboard is in use.
 
 ## Adding New Units or Enemies
 1. Register stats, costs, caps, abilities in `src/data/UnitRegistry.ts` or `EnemyRegistry.ts`.

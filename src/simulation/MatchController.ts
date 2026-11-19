@@ -19,7 +19,9 @@ import {
 } from '../data/GameModesConfig';
 import { EventBus } from '../core/EventBus';
 import { SaveManager } from '../core/SaveManager';
+import { QualityManager } from '../core/QualityManager';
 import { TimeScale } from '../core/TimeScale';
+import { InputActions } from '../core/InputActions';
 import { Engine } from '../core/Engine';
 import { MeshFactory, type MapSceneHandles } from '../rendering/MeshFactory';
 import { PropKit } from '../rendering/props/PropKit';
@@ -37,6 +39,8 @@ import { TowerEntity } from './TowerEntity';
 import { EnemyEntity } from './EnemyEntity';
 import { SynthAudio } from '../audio/SynthAudio';
 import { AdaptiveMusic } from '../audio/AdaptiveMusic';
+import { HubWorld } from '../hub/HubWorld';
+import type { HubStationId } from '../hub/Station';
 
 export interface WaveSpawnEntry {
   type: EnemyTypeId;
@@ -58,6 +62,7 @@ interface PendingSpawn {
   type: EnemyTypeId;
   splineIdx: number;
   delay: number;
+  isMiniBoss?: boolean;
 }
 
 interface MeteorHazard {
@@ -137,8 +142,10 @@ export class MatchController {
   private bossEntranceTimer = 0;
   private worldPopupContainer: HTMLElement;
 
-  // Living Garden Hub plants (§13.1)
+  // Living Garden Hub World & plants (v5 M34)
+  public hubWorld: HubWorld;
   public hubPlants: Array<{ unitId: string; root: THREE.Group }> = [];
+  public onHubStationInteract: ((id: HubStationId) => void) | null = null;
 
   // v4 Doc 02 & Doc 06 Match State (Modifiers, Path Units, Survival, Sandbox, Rival, Story)
   public activeModifiers: Record<string, number> = {};
@@ -146,6 +153,12 @@ export class MatchController {
   public activeStoryChapterId: number | null = null;
   public rollerCooldown = 0;
   private waveCombatCashEarned = 0;
+  private matchSeenTypes = new Set<EnemyTypeId>();
+  private ambientVfxTimer = 0;
+  private bossStepTimer = 0;
+  public autoUpgradeQueueEnabled = Boolean(QualityManager.settings.autoUpgradeDefault);
+  public tryUnitTimer = 0;
+  public tryUnitMode = false;
 
   private gnomeSoldiers: Array<{
     mesh: THREE.Group;
@@ -172,7 +185,6 @@ export class MatchController {
   public gardenerDashCd = 0;
   public gardenerSplashCd = 0;
   private gardenerOutOfCombatSec = 0;
-  private gardenerKeys = new Set<string>();
 
   // Sandbox Mode flags (Doc 06 §4.2)
   public sandboxInfiniteCash = false;
@@ -225,47 +237,37 @@ export class MatchController {
     });
 
     this.loadDiorama('sunny_backyard');
-    this.rebuildHubGarden();
+    this.hubWorld = new HubWorld(this.engine.scene, this.vfx);
+    this.enterHubMode();
     this.engine.applyLobbySeasonTint(getCalendarSeason());
 
-    window.addEventListener('keydown', (ev) => {
-      this.gardenerKeys.add(ev.code);
+    InputActions.onDown('survival_dash', () => {
       if (this.inMatch && this.gameMode === 'survival' && !this.matchEnded) {
-        if (ev.code === 'Space') this.triggerSurvivalDash();
-        if (ev.code === 'KeyE') this.triggerSurvivalSplash();
+        this.triggerSurvivalDash();
+        return true;
       }
+      return false;
     });
-    window.addEventListener('keyup', (ev) => {
-      this.gardenerKeys.delete(ev.code);
+    InputActions.onDown('survival_splash', () => {
+      if (this.inMatch && this.gameMode === 'survival' && !this.matchEnded) {
+        this.triggerSurvivalSplash();
+        return true;
+      }
+      return false;
     });
   }
 
-  public rebuildHubGarden(): void {
-    for (const h of this.hubPlants) this.engine.scene.remove(h.root);
-    this.hubPlants = [];
-    if (this.inMatch) return;
+  private enterHubMode(): void {
+    if (this.mapHandles) this.mapHandles.group.visible = false;
+    this.grass.setVisible(false);
+    this.hubWorld.setActive(true, this.engine.cameraRig);
+    this.rebuildHubGarden();
+  }
 
-    const ownedIds = Object.keys(SaveManager.data.owned);
-    ownedIds.forEach((uId, idx) => {
-      const unit = getUnitById(uId);
-      const owned = SaveManager.data.owned[uId];
-      const rig = MeshFactory.buildTowerRig(
-        uId,
-        Math.min(5, Math.floor(owned.masteryLevel / 2)),
-        unit.rarity,
-        owned.trait,
-        owned.soilSkin,
-        owned.isPrime,
-        owned.variant ?? 'none'
-      );
-      const col = idx % 5;
-      const row = Math.floor(idx / 5);
-      const isRoyal = unit.rarity === 'Godly' || unit.rarity === 'Exclusive';
-      rig.root.position.set(-7 + col * 2.4, isRoyal ? 0.35 : 0, -14 + row * 2.4);
-      rig.root.userData.hubUnitId = uId;
-      this.engine.scene.add(rig.root);
-      this.hubPlants.push({ unitId: uId, root: rig.root });
-    });
+  public rebuildHubGarden(): void {
+    if (this.inMatch) return;
+    this.hubWorld.rebuildOwnedPlants();
+    this.hubPlants = this.hubWorld.hubPlants;
   }
 
   public loadDiorama(mapId: MapId): void {
@@ -284,6 +286,10 @@ export class MatchController {
     this.engine.cameraRig.setBounds(this.mapDef.boundsHalfSize);
     this.placement.setMap(this.mapDef, this.mapHandles.splines);
     this.grass.rebuildForMap(this.mapDef, this.mapHandles.splines);
+    if (!this.inMatch) {
+      this.mapHandles.group.visible = false;
+      this.grass.setVisible(false);
+    }
     AdaptiveMusic.mapId = mapId;
     AdaptiveMusic.bossPhase3 = false;
   }
@@ -338,8 +344,10 @@ export class MatchController {
     }
 
     this.inMatch = true;
-    this.rebuildHubGarden();
+    this.hubWorld.setActive(false, this.engine.cameraRig);
+    this.engine.cameraRig.hubFollowActive = false;
     this.loadDiorama(actualMap);
+    this.grass.setVisible(true);
 
     this.difficultyId = actualDiff;
     this.isEndless = mode === 'endless';
@@ -354,6 +362,10 @@ export class MatchController {
     this.skipBonusAvailable = false;
     this.rollerCooldown = 0;
     this.waveCombatCashEarned = 0;
+    this.matchSeenTypes.clear();
+    this.autoUpgradeQueueEnabled = Boolean(QualityManager.settings.autoUpgradeDefault);
+    this.tryUnitMode = false;
+    this.tryUnitTimer = 0;
     this.meteorHazards = [];
     this.poisonClouds = [];
     this.blizzardTimer = 0;
@@ -419,7 +431,7 @@ export class MatchController {
     this.engine.postFx.setLowHpDesaturate(false);
     this.engine.postFx.setEnvironmentTint(0xffffff, 0, 0, 0);
     this.loadDiorama(SaveManager.data.selectedMap);
-    this.rebuildHubGarden();
+    this.enterHubMode();
     this.engine.applyLobbySeasonTint(getCalendarSeason());
   }
 
@@ -530,6 +542,8 @@ export class MatchController {
     tower.modCdMult = this.modifierEffects.towerCdMult;
     tower.modRangeMult = this.modifierEffects.towerRangeMult;
     tower.modCostMult = this.modifierEffects.towerCostMult;
+    tower.priority = this.towers.length + 1;
+    tower.instanceNumber = this.towers.filter((tw) => tw.def.id === unitId).length + 1;
 
     this.towers.push(tower);
     this.rootNetwork.computeLinks(this.towers);
@@ -569,6 +583,7 @@ export class MatchController {
     this.rootNetwork.computeLinks(this.towers);
     this.vfx.spawnRecipe('upgrade_spiral', tower.position.x, tower.position.y + 0.3, tower.position.z);
     if (tower.level === 5) {
+      this.vfx.spawnRecipe('lv5_awake_pillar', tower.position.x, tower.position.y + 0.4, tower.position.z);
       this.vfx.spawnUpgradeLightPillar(tower.position.x, tower.position.z);
       EventBus.emit('camera:fov_kick', { degrees: 6, duration: 0.4 });
       this.popups.spawnDamage(tower.position.x, tower.position.y + 1.8, tower.position.z, 0, 'crit', '', 'MAX!');
@@ -589,20 +604,62 @@ export class MatchController {
     return count;
   }
 
-  /** Doc 03 §3 Upgrade cheapest placed towers sequentially until cash runs out. */
+  /** Doc 03 §3 / v5 Upgrade by priority order (leaving optional reserve untouched). */
   public upgradeAllAffordable(): number {
+    return this.upgradeByPriority(0);
+  }
+
+  public upgradeByPriority(reserve = 0): number {
     let upgradedCount = 0;
     while (true) {
       const candidates = this.towers
         .filter((t) => t.level < 5)
         .map((t) => ({ t, cost: t.getNextUpgradeCost() ?? Infinity }))
-        .sort((a, b) => a.cost - b.cost);
+        .filter((c) => Number.isFinite(c.cost) && (this.sandboxInfiniteCash || this.cash - reserve >= c.cost))
+        .sort((a, b) => a.t.priority - b.t.priority || a.cost - b.cost);
       if (candidates.length === 0) break;
       if (!this.upgradeTower(candidates[0].t)) break;
       upgradedCount++;
       if (upgradedCount >= 40) break;
     }
     return upgradedCount;
+  }
+
+  public setTowerPriority(tower: TowerEntity, nextPriority: number): void {
+    const clamped = Math.max(1, Math.min(this.towers.length, Math.round(nextPriority)));
+    const ordered = [...this.towers].sort((a, b) => a.priority - b.priority);
+    const curIdx = ordered.indexOf(tower);
+    if (curIdx >= 0) {
+      ordered.splice(curIdx, 1);
+      ordered.splice(clamped - 1, 0, tower);
+      ordered.forEach((tw, i) => {
+        tw.priority = i + 1;
+      });
+      EventBus.emit('match:state_changed', undefined);
+    }
+  }
+
+  public startTryUnitTest(unitId: string): void {
+    this.startMatch('sunny_backyard', 'Easy', 'sandbox');
+    this.tryUnitMode = true;
+    this.tryUnitTimer = 20.0;
+    this.sandboxInfiniteCash = true;
+    const unit = getUnitById(unitId);
+    const pt =
+      unit.terrain === 'CLIFF'
+        ? { x: -1, z: 3 }
+        : unit.terrain === 'PATH'
+          ? { x: -4, z: -2 }
+          : { x: 0, z: -3.5 };
+    this.placeTower(unitId, pt.x, pt.z);
+    for (let i = 0; i < 6; i++) {
+      this.spawnEnemy('garden_ant', 0, Math.min(0.85, i * 0.08));
+    }
+    EventBus.emit('toast:show', {
+      title: `🧪 Trying ${unit.name} (20 s Test Lane)`,
+      subtitle: 'Upgrade & watch attacks — returns to Hub cleanly when done!',
+      color: '#4ade80',
+    });
   }
 
   public collectSunCoinsNearPoint(wx: number, wz: number, radius = 2.4): number {
@@ -625,10 +682,10 @@ export class MatchController {
     this.gardenerDashCd = 3.0;
     let dx = 0;
     let dz = 0;
-    if (this.gardenerKeys.has('KeyW') || this.gardenerKeys.has('ArrowUp')) dz -= 1;
-    if (this.gardenerKeys.has('KeyS') || this.gardenerKeys.has('ArrowDown')) dz += 1;
-    if (this.gardenerKeys.has('KeyA') || this.gardenerKeys.has('ArrowLeft')) dx -= 1;
-    if (this.gardenerKeys.has('KeyD') || this.gardenerKeys.has('ArrowRight')) dx += 1;
+    if (InputActions.isDown('cam_up')) dz -= 1;
+    if (InputActions.isDown('cam_down')) dz += 1;
+    if (InputActions.isDown('cam_left')) dx -= 1;
+    if (InputActions.isDown('cam_right')) dx += 1;
     if (dx === 0 && dz === 0) dz = -1;
     const len = Math.hypot(dx, dz) || 1;
     const b = this.mapDef.boundsHalfSize - 1.5;
@@ -858,6 +915,23 @@ export class MatchController {
         splineCursor++;
       }
     }
+
+    // GTD Style Crowned Mini-Boss King on every 10th wave (that isn't already final boss wave)
+    if (!preview.isBossWave && this.currentWave > 0 && this.currentWave % 10 === 0 && this.difficultyId !== 'Easy') {
+      const kingType: EnemyTypeId = this.currentWave >= 30 ? 'burrowing_mole' : 'garden_ant';
+      const kingTitle = kingType === 'burrowing_mole' ? 'Mole King' : 'Ant King';
+      this.spawnQueue.push({
+        type: kingType,
+        splineIdx: 0,
+        delay: 0.9,
+        isMiniBoss: true,
+      });
+      EventBus.emit('toast:show', {
+        title: `👑 ${kingTitle} Enters!`,
+        subtitle: `Wave ${this.currentWave} Crowned Mini-Boss`,
+        color: '#fde047',
+      });
+    }
     this.spawnTimer = 0.25;
 
     if (this.mapDef.id === 'sunny_backyard' && this.currentWave === 10 && this.mapHandles?.lawnmower) {
@@ -894,14 +968,14 @@ export class MatchController {
     }
   }
 
-  private spawnEnemy(type: EnemyTypeId, splineIdx: number, customProgress = 0): EnemyEntity | null {
+  private spawnEnemy(type: EnemyTypeId, splineIdx: number, customProgress = 0, isMiniBoss = false): EnemyEntity | null {
     if (!this.mapHandles) return null;
     const spline = this.mapHandles.splines[splineIdx] ?? this.mapHandles.splines[0];
     const diffDef = DIFFICULTIES[this.difficultyId];
     const diffMult = diffDef.enemyHpMult * this.modifierEffects.enemyHpMult;
     const scaledHp = computeScaledEnemyHP(ENEMIES[type].baseHP, this.currentWave, diffMult);
 
-    if (this.enemies.length >= 150 && type === 'garden_ant') {
+    if (!isMiniBoss && this.enemies.length >= 150 && type === 'garden_ant') {
       const existingAnt = this.enemies.find((e) => !e.isDead && e.type === 'garden_ant' && e.progress < 0.25);
       if (existingAnt) {
         existingAnt.mergeSwarmAnt(scaledHp);
@@ -910,7 +984,7 @@ export class MatchController {
     }
 
     const endlessExtraMod = this.isEndless && this.currentWave >= 25 ? rollEliteModifier() : null;
-    const eliteChance = !ENEMIES[type].isBoss && !ENEMIES[type].isMiniBoss ? Math.min(diffDef.eliteChanceCap || 0.25, getEliteSpawnChance(this.currentWave)) : 0;
+    const eliteChance = !ENEMIES[type].isBoss && !ENEMIES[type].isMiniBoss && !isMiniBoss ? Math.min(diffDef.eliteChanceCap || 0.25, getEliteSpawnChance(this.currentWave)) : 0;
     const isElite = Boolean(endlessExtraMod) || Math.random() < eliteChance;
     const eliteMod = endlessExtraMod ?? (isElite ? rollEliteModifier() : null);
 
@@ -925,11 +999,17 @@ export class MatchController {
       eliteMod,
       this.engine.scene,
       this.worldPopupContainer,
-      speedMult
+      speedMult,
+      isMiniBoss
     );
     enemy.progress = customProgress;
     this.enemies.push(enemy);
     SaveManager.markEnemySeen(type);
+
+    if (!this.matchSeenTypes.has(type)) {
+      this.matchSeenTypes.add(type);
+      this.popups.spawnDamage(enemy.position.x, 1.8, enemy.position.z, 0, 'synergy', '', '!');
+    }
 
     // §6.1 Spawn entrance puff
     if (customProgress === 0 && this.mapHandles.spawnMarkers[splineIdx]) {
@@ -1052,14 +1132,11 @@ export class MatchController {
     if (this.inMatch && !this.matchEnded) {
       this.updateMatchSimulation(effectiveSimDt, effectiveEnemyDt, uiDt);
     } else {
-      // Hub Garden idle animations
-      const nowTime = performance.now() * 0.001;
-      for (let i = 0; i < this.hubPlants.length; i++) {
-        this.hubPlants[i].root.rotation.y = Math.sin(nowTime * 0.8 + i) * 0.12;
-      }
+      this.hubWorld.update(uiDt, this.engine.cameraRig, (stationId) => {
+        this.onHubStationInteract?.(stationId);
+      });
       this.vfx.update(uiDt);
       this.vfx.syncStatusIcons([], this.engine.cameraRig.camera);
-      this.grass.update(uiDt);
     }
 
     this.engine.beginContactShadows();
@@ -1092,6 +1169,36 @@ export class MatchController {
     if (activeBoss) {
       for (const g of this.mapHandles.gnomes) {
         g.lookAt(activeBoss.position.x, 0, activeBoss.position.z);
+      }
+      this.bossStepTimer += simDt;
+      if (this.bossStepTimer >= 0.75) {
+        this.bossStepTimer = 0;
+        this.vfx.spawnRecipe('boss_step_dust', activeBoss.position.x, 0.15, activeBoss.position.z);
+        this.decals.spawn('crater', activeBoss.position.x, activeBoss.position.z, 1.3, 4.5);
+      }
+    }
+
+    // Map-wide atmospheric ambient particles + Lv5 unit floating motes
+    this.ambientVfxTimer += uiDt;
+    if (this.ambientVfxTimer >= 0.42) {
+      this.ambientVfxTimer = 0;
+      const rx = (Math.random() - 0.5) * 28;
+      const rz = (Math.random() - 0.5) * 28;
+      if (this.mapDef.id === 'frosty_allotment') {
+        this.vfx.spawnRecipe('map_snow_sparkle', rx, 5.0, rz);
+      } else if (this.mapDef.id === 'volcano_greenhouse') {
+        this.vfx.spawnRecipe('map_lava_ember', rx, 0.4, rz);
+      } else if (this.mapDef.id === 'zen_garden') {
+        this.vfx.spawnRecipe('map_sakura_petal', rx, 4.5, rz);
+      } else {
+        this.vfx.spawnRecipe('map_sun_dust', rx, 2.2, rz);
+      }
+      if (this.inMatch && this.towers.length > 0) {
+        const lv5s = this.towers.filter((tw) => tw.level >= 5);
+        if (lv5s.length > 0) {
+          const pick = lv5s[Math.floor(Math.random() * lv5s.length)];
+          this.vfx.spawnRecipe('lv5_motes', pick.position.x, pick.position.y + 1.0, pick.position.z);
+        }
       }
     }
 
@@ -1179,6 +1286,30 @@ export class MatchController {
       this.blizzardTimer = Math.max(0, this.blizzardTimer - simDt);
     }
 
+    if (this.tryUnitMode) {
+      this.tryUnitTimer -= uiDt;
+      if (this.tryUnitTimer <= 0) {
+        this.tryUnitMode = false;
+        EventBus.emit('ui:open_lobby', undefined);
+        return;
+      }
+    }
+
+    if (this.autoUpgradeQueueEnabled && !this.matchEnded) {
+      const reserve = QualityManager.settings.cashReserve ?? 0;
+      const queued = this.towers
+        .filter((t) => t.autoUpgrade && t.level < 5)
+        .map((t) => ({ t, cost: t.getNextUpgradeCost() ?? Infinity }))
+        .filter((c) => this.sandboxInfiniteCash || this.cash - reserve >= c.cost)
+        .sort((a, b) => a.t.priority - b.t.priority || a.cost - b.cost);
+      if (queued.length > 0 && this.upgradeTower(queued[0].t)) {
+        EventBus.emit('toast:show', {
+          title: `⟳ ${queued[0].t.def.name} #${queued[0].t.instanceNumber} → Lv.${queued[0].t.level}`,
+          color: '#4ade80',
+        });
+      }
+    }
+
     // Gardener Survival Avatar Update (Doc 06 §4.1)
     if (this.gameMode === 'survival' && this.gardenerMesh && !this.matchEnded) {
       if (this.gardenerDashCd > 0) this.gardenerDashCd = Math.max(0, this.gardenerDashCd - simDt);
@@ -1187,10 +1318,10 @@ export class MatchController {
 
       let mx = 0;
       let mz = 0;
-      if (this.gardenerKeys.has('KeyW') || this.gardenerKeys.has('ArrowUp')) mz -= 1;
-      if (this.gardenerKeys.has('KeyS') || this.gardenerKeys.has('ArrowDown')) mz += 1;
-      if (this.gardenerKeys.has('KeyA') || this.gardenerKeys.has('ArrowLeft')) mx -= 1;
-      if (this.gardenerKeys.has('KeyD') || this.gardenerKeys.has('ArrowRight')) mx += 1;
+      if (InputActions.isDown('cam_up')) mz -= 1;
+      if (InputActions.isDown('cam_down')) mz += 1;
+      if (InputActions.isDown('cam_left')) mx -= 1;
+      if (InputActions.isDown('cam_right')) mx += 1;
       if (mx !== 0 || mz !== 0) {
         const len = Math.hypot(mx, mz) || 1;
         const b = this.mapDef.boundsHalfSize - 1.5;
@@ -1248,7 +1379,7 @@ export class MatchController {
       this.spawnTimer -= simDt;
       if (this.spawnTimer <= 0) {
         const next = this.spawnQueue.shift()!;
-        this.spawnEnemy(next.type, next.splineIdx);
+        this.spawnEnemy(next.type, next.splineIdx, 0, Boolean(next.isMiniBoss));
         this.spawnTimer = this.spawnQueue.length > 0 ? this.spawnQueue[0].delay : 0;
         if (this.spawnQueue.length === 0) {
           this.skipBonusAvailable = true;
@@ -1760,6 +1891,7 @@ export class MatchController {
       if (t.targeting === 'First' && e.progress > best.progress) best = e;
       else if (t.targeting === 'Last' && e.progress < best.progress) best = e;
       else if (t.targeting === 'Strongest' && e.hp > best.hp) best = e;
+      else if (t.targeting === 'Weakest' && e.hp < best.hp) best = e;
       else if (t.targeting === 'Closest') {
         const bSq = (best.position.x - t.position.x) ** 2 + (best.position.z - t.position.z) ** 2;
         if (dSq < bSq) best = e;
@@ -1787,6 +1919,13 @@ export class MatchController {
     const tx = t.position.x;
     const ty = t.position.y + 0.85;
     const tz = t.position.z;
+
+    // Unit VFX Tiers (M30): Lv0-2 muzzle puff -> Lv3-4 ring flash -> Lv5 flare
+    if (t.level >= 3) {
+      this.vfx.spawnRecipe('muzzle_ring_flash', tx, ty + 0.1, tz, t.level >= 5 ? 0xfde047 : undefined);
+    } else {
+      this.vfx.spawnRecipe('muzzle_puff', tx, ty + 0.1, tz);
+    }
 
     if (t.def.id === 'tomato_tosser') {
       SynthAudio.play('tomato');
@@ -1914,7 +2053,13 @@ export class MatchController {
       const aimLen = Math.max(0.01, Math.hypot(aimX, aimZ));
       const dirX = aimX / aimLen;
       const dirZ = aimZ / aimLen;
-      this.vfx.spawnRecipe('fire_cinders', tx + dirX * 1.6, 0.6, tz + dirZ * 1.6, t.level >= 5 ? 0x67e8f9 : undefined);
+      this.vfx.spawnRecipe(
+        t.level >= 5 ? 'ghost_fire_wisp' : 'fire_cinders',
+        tx + dirX * 1.6,
+        0.6,
+        tz + dirZ * 1.6,
+        t.level >= 5 ? 0x67e8f9 : undefined
+      );
       this.decals.spawn('scorch', target.position.x, target.position.z, 1.4, 5);
       this.grass.addReaction(target.position.x, target.position.z, 2.2, 'burn', 1.8);
 
@@ -1940,6 +2085,7 @@ export class MatchController {
       SynthAudio.play('sonic');
       const rng = t.getEffectiveRange(w.weatherRangeMult);
       this.vfx.spawnShockwave(tx, 0.08, tz, rng, t.level >= 5 ? 0x2dd4bf : 0xe879f9, 0.5);
+      if (t.level >= 5) this.vfx.spawnRecipe('rainbow_equalizer', tx, 0.5, tz);
       this.grass.addReaction(tx, tz, rng, 'flatten', 1.4);
       for (const e of this.enemies) {
         if (e.isDead || e.reachedGoal) continue;
@@ -1955,7 +2101,7 @@ export class MatchController {
       SynthAudio.play('ice');
       t.iceHitCounter++;
       this.vfx.spawnBeam(tx, ty, tz, target.position.x, 0.6, target.position.z, 0x38bdf8, 0.9, 0.14);
-      this.vfx.spawnRecipe('frost_shatter', target.position.x, 0.5, target.position.z);
+      this.vfx.spawnRecipe(t.level >= 5 ? 'snowfall_aura' : 'frost_shatter', target.position.x, 0.5, target.position.z);
       this.decals.spawn('frost', target.position.x, target.position.z, 1.5, 6);
       this.grass.addReaction(target.position.x, target.position.z, 2.0, 'frost', 2.0);
       const triggersFreeze = t.iceHitCounter % 4 === 0;
@@ -2294,17 +2440,23 @@ export class MatchController {
               ? 0x38bdf8
               : 0xc084fc;
       this.vfx.spawnRecipe('boss_core_explosion', e.position.x, 1.6, e.position.z, bossColor);
-      this.vfx.spawnShockwave(e.position.x, 0.1, e.position.z, 18, bossColor, 1.0);
+      this.vfx.spawnRecipe('corruption_peel', e.position.x, 1.4, e.position.z);
+      this.vfx.spawnShockwave(e.position.x, 0.1, e.position.z, 18, bossColor, 1.0, true);
       EventBus.emit('camera:zoom_punch', { factor: 0.12, duration: 0.6 });
       EventBus.emit('camera:trauma', { amount: 0.85 });
       EventBus.emit('vfx:screen_flash', { color: '#ffffff', opacity: 0.65, duration: 0.25 });
       EventBus.emit('match:boss_defeated', undefined);
       EventBus.emit('match:killfeed', { text: `${e.def.name} defeated!`, color: '#4ade80' });
+      EventBus.emit('ui:subtitle', { speaker: e.def.name, text: 'Corruption shattered! The garden breathes freely!', duration: 3.0 });
       SynthAudio.play('explosion');
     } else if (e.lastHitElement === 'freeze') {
       this.vfx.spawnRecipe('frost_shatter', e.position.x, 0.5, e.position.z);
     } else if (e.lastHitElement === 'burn') {
       this.vfx.spawnRecipe('dissolve_embers', e.position.x, 0.5, e.position.z);
+    } else if (e.lastHitElement === 'poison') {
+      this.vfx.spawnRecipe('poison_cloud', e.position.x, 0.5, e.position.z);
+    } else {
+      this.vfx.spawnRecipe('enemy_element_death', e.position.x, 0.5, e.position.z);
     }
 
     // §6.3 Last kill of wave: slow-mo + flower bloom ripple down track
@@ -2357,6 +2509,8 @@ export class MatchController {
     const dmg = e.def.baseDamage;
     this.baseHp = Math.max(0, this.baseHp - dmg);
     const lowHp = this.baseHp > 0 && this.baseHp / this.maxBaseHp < 0.25;
+    this.vfx.spawnRecipe('base_leak_bonk', e.position.x, 0.9, e.position.z);
+    this.vfx.spawnShockwave(e.position.x, 0.1, e.position.z, 2.8, 0xef4444, 0.45, true);
     EventBus.emit('match:base_hp_changed', { hp: this.baseHp, maxHp: this.maxBaseHp, delta: -dmg });
     EventBus.emit('vfx:base_hit_vignette', { lowHp });
     SynthAudio.play('base_hit');

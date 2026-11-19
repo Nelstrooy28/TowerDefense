@@ -3,6 +3,7 @@ import { DampedSpring, Vec3Spring, easeOutBack, easeOutCubic } from './Easing';
 import type { EnemyRigRefs, TowerRigRefs } from './MeshFactory';
 import type { EnemyTypeId } from '../data/EnemyRegistry';
 import { DissolveMaterialPool } from './ShaderLib';
+import { BugRigKit } from './bugs/BugRigKit';
 
 export type HitReactionType = 'physical' | 'burn' | 'freeze' | 'beam' | 'lightning';
 
@@ -380,7 +381,9 @@ export class EnemyAnimator {
     isFrozen: boolean,
     isBurrowed: boolean,
     isStaggered: boolean,
-    skipLodSubAnim: boolean
+    skipLodSubAnim: boolean,
+    hpRatio = 1.0,
+    turnDeltaRad = 0
   ): void {
     this.knockbackTiltSpring.step(dt);
     if (this.fireShakeTimer > 0) this.fireShakeTimer = Math.max(0, this.fireShakeTimer - dt);
@@ -411,12 +414,8 @@ export class EnemyAnimator {
       }
     } else {
       for (const m of rig.bodyMaterials) {
-        if ((type === 'treant_overlord' || type === 'magma_beetle_queen') && m === rig.bodyMaterials[2]) {
-          m.emissive.setHex(type === 'treant_overlord' ? 0xc084fc : 0xf97316);
-          m.emissiveIntensity = 1.45;
-        } else {
-          m.emissiveIntensity = 0;
-        }
+        m.emissive.setHex((m.userData.baseEmissiveHex as number | undefined) ?? 0x000000);
+        m.emissiveIntensity = (m.userData.baseEmissiveInt as number | undefined) ?? 0;
       }
     }
 
@@ -443,23 +442,24 @@ export class EnemyAnimator {
       rig.locustFlock.instanceMatrix.needsUpdate = true;
     }
 
-    // §19 LOD: Skip leg/wing animations beyond 25 units
-    if (!isFrozen && this.lightningFreezeTimer <= 0 && !skipLodSubAnim) {
-      const animMult = this.iceAnimSlowTimer > 0 ? 0.5 : 1.0;
-      const cycle = time * speed * 4.5 * animMult;
-      for (let i = 0; i < rig.legs.length; i++) {
-        const sign = i % 2 === 0 ? 1 : -1;
-        rig.legs[i].rotation.x = Math.sin(cycle) * 0.48 * sign;
-      }
-      for (let i = 0; i < rig.wings.length; i++) {
-        const sign = i % 2 === 0 ? 1 : -1;
-        rig.wings[i].rotation.z = Math.sin(time * 42 * animMult) * 0.45 * sign;
-      }
-    }
+    const animMult = this.iceAnimSlowTimer > 0 ? 0.5 : 1.0;
+    const isStopped = isFrozen || isStaggered || this.lightningFreezeTimer > 0 || speed <= 0.05;
+    BugRigKit.animateAlive(
+      rig,
+      speed * animMult,
+      time,
+      dt,
+      isFrozen || this.lightningFreezeTimer > 0,
+      isStopped,
+      turnDeltaRad,
+      hpRatio,
+      isStaggered,
+      skipLodSubAnim
+    );
 
     const stretchZ = type === 'sprinter_mantis' && speed > 4.5 ? 1.15 : 1.0;
-    rig.bodyGroup.scale.set(1 / Math.sqrt(stretchZ), isStaggered ? 0.78 : 1, stretchZ);
-    rig.bodyGroup.position.y = this.hopOffset;
+    rig.bodyGroup.scale.set(1 / Math.sqrt(stretchZ), isStaggered ? 0.78 : rig.bodyGroup.scale.y, stretchZ);
+    rig.bodyGroup.position.y += this.hopOffset;
     rig.bodyGroup.position.x = this.fireShakeTimer > 0 ? Math.sin(time * 65) * 0.12 : 0;
     rig.bodyGroup.rotation.x =
       (isStaggered ? 0.25 : 0) + THREE.MathUtils.clamp(this.knockbackTiltSpring.value * 0.08, -0.35, 0.35);
@@ -476,31 +476,7 @@ export class EnemyAnimator {
 
     const poseDur = Math.max(0.15, this.deathDuration - 0.4);
     const poseT = Math.min(1, this.deathAge / poseDur);
-
-    if (type === 'garden_ant') {
-      rig.bodyGroup.rotation.z = Math.min(Math.PI, poseT * Math.PI * 1.5);
-      rig.bodyGroup.position.y = Math.sin(poseT * Math.PI) * 0.45;
-    } else if (type === 'sprinter_mantis') {
-      rig.bodyGroup.rotation.x = poseT * Math.PI * 1.4;
-      rig.bodyGroup.position.z = poseT * 0.9;
-    } else if (type === 'iron_beetle') {
-      if (rig.shellMesh) {
-        rig.shellMesh.position.y = 0.36 + poseT * 0.9;
-        rig.shellMesh.rotation.z = poseT * 2.2;
-      }
-    } else if (type === 'burrowing_mole') {
-      rig.bodyGroup.visible = true;
-      if (rig.dirtMound) rig.dirtMound.visible = false;
-      rig.bodyGroup.position.y = Math.sin(poseT * Math.PI) * 1.1;
-      rig.bodyGroup.rotation.y = poseT * Math.PI * 4;
-    } else if (type === 'spore_wasp' || type === 'moth_flyer' || type === 'frost_moth_empress') {
-      rig.bodyGroup.rotation.y += dt * 10;
-      rig.bodyGroup.rotation.z = poseT * 1.2;
-      rig.bodyGroup.position.y = -poseT * 1.1;
-    } else if (type === 'gargantuan_snail') {
-      if (rig.shellMesh) rig.shellMesh.scale.setScalar(Math.max(0.01, 1 - poseT * 1.8));
-      rig.bodyGroup.scale.set(1 + poseT * 0.5, Math.max(0.15, 1 - poseT * 0.85), 1 + poseT * 0.5);
-    }
+    BugRigKit.animateDeathPose(rig, type, poseT, dt);
 
     // Fix F1 (§2): Swap to pooled dissolve ShaderMaterial for the final 0.4 s
     const dissolveStart = Math.max(0, this.deathDuration - 0.4);

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { QualityManager } from './QualityManager';
+import { InputActions } from './InputActions';
 import { DampedSpring, easeOutCubic } from '../rendering/Easing';
 
 export class CameraRig {
@@ -17,8 +18,8 @@ export class CameraRig {
   private desiredDistance = 25;
 
   private boundsHalfSize = 21;
-  private keysDown = new Set<string>();
   private isOrbitDragging = false;
+  public hubFollowActive = false;
   private lastPointerX = 0;
   private lastPointerY = 0;
   private idleTimer = 0;
@@ -66,6 +67,10 @@ export class CameraRig {
     this.boundsHalfSize = Math.max(10, halfSize - 2);
   }
 
+  public getYaw(): number {
+    return this.yaw;
+  }
+
   public resetView(): void {
     this.desiredTarget.set(0, 0, 2);
     this.target.set(0, 0, 2);
@@ -82,6 +87,13 @@ export class CameraRig {
   public focusPoint(wx: number, wz: number, zoomDist = 14): void {
     this.desiredTarget.set(wx, 0, wz);
     this.desiredDistance = THREE.MathUtils.clamp(zoomDist, 8, 38);
+  }
+
+  public glideTo(wx: number, wy: number, wz: number, zoomDist = 15, yaw?: number, pitchDeg?: number): void {
+    this.desiredTarget.set(wx, wy, wz);
+    this.desiredDistance = THREE.MathUtils.clamp(zoomDist, 6, 40);
+    if (yaw !== undefined) this.desiredYaw = yaw;
+    if (pitchDeg !== undefined) this.desiredPitch = THREE.MathUtils.degToRad(pitchDeg);
   }
 
   public addTrauma(amount: number): void {
@@ -144,12 +156,8 @@ export class CameraRig {
   }
 
   private bindInputs(dom: HTMLElement): void {
-    window.addEventListener('keydown', (e) => {
-      this.keysDown.add(e.code);
-      this.idleTimer = 0;
-    });
-    window.addEventListener('keyup', (e) => {
-      this.keysDown.delete(e.code);
+    InputActions.onDown('cam_reset', () => {
+      if (!this.cinematicActive) this.resetView();
     });
 
     dom.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -287,16 +295,34 @@ export class CameraRig {
     this.idleTimer += dt;
     this.shakeTime += dt * 28;
 
-    // WASD / Arrow Keys XZ pan along camera yaw
+    // WASD / Arrow Keys XZ pan along camera yaw + rotate/zoom hotkeys via InputActions
     if ((!this.isLobbyMode || this.photoMode) && !this.cinematicActive) {
       let forward = 0;
       let right = 0;
-      if (this.keysDown.has('KeyW') || this.keysDown.has('ArrowUp')) forward += 1;
-      if (this.keysDown.has('KeyS') || this.keysDown.has('ArrowDown')) forward -= 1;
-      if (this.keysDown.has('KeyD') || this.keysDown.has('ArrowRight')) right += 1;
-      if (this.keysDown.has('KeyA') || this.keysDown.has('ArrowLeft')) right -= 1;
+      if (InputActions.isDown('cam_up')) forward += 1;
+      if (InputActions.isDown('cam_down')) forward -= 1;
+      if (InputActions.isDown('cam_right')) right += 1;
+      if (InputActions.isDown('cam_left')) right -= 1;
+
+      if (InputActions.isDown('cam_rot_left')) {
+        this.desiredYaw += 1.8 * dt;
+        this.idleTimer = 0;
+      }
+      if (InputActions.isDown('cam_rot_right')) {
+        this.desiredYaw -= 1.8 * dt;
+        this.idleTimer = 0;
+      }
+      if (InputActions.isDown('cam_zoom_in')) {
+        this.desiredDistance = THREE.MathUtils.clamp(this.desiredDistance - 16 * dt, 8, 38);
+        this.idleTimer = 0;
+      }
+      if (InputActions.isDown('cam_zoom_out')) {
+        this.desiredDistance = THREE.MathUtils.clamp(this.desiredDistance + 16 * dt, 8, 38);
+        this.idleTimer = 0;
+      }
 
       if (forward !== 0 || right !== 0) {
+        this.idleTimer = 0;
         const panSpeed = 18 * dt;
         const sinY = Math.sin(this.yaw);
         const cosY = Math.cos(this.yaw);
@@ -313,10 +339,31 @@ export class CameraRig {
           this.boundsHalfSize
         );
       }
+    } else if (this.isLobbyMode && this.hubFollowActive) {
+      if (InputActions.isDown('cam_rot_left')) {
+        this.desiredYaw += 1.6 * dt;
+        this.idleTimer = 0;
+      }
+      if (InputActions.isDown('cam_rot_right')) {
+        this.desiredYaw -= 1.6 * dt;
+        this.idleTimer = 0;
+      }
+      if (InputActions.isDown('cam_zoom_in')) {
+        this.desiredDistance = THREE.MathUtils.clamp(this.desiredDistance - 14 * dt, 7, 34);
+      }
+      if (InputActions.isDown('cam_zoom_out')) {
+        this.desiredDistance = THREE.MathUtils.clamp(this.desiredDistance + 14 * dt, 7, 34);
+      }
     }
 
-    // Lobby Idle Drift (§3.2): 8 s no input in lobby -> slow orbit 4°/s
-    if (this.isLobbyMode && !this.photoMode && this.idleTimer >= 8 && !QualityManager.settings.reducedMotion) {
+    // Lobby Idle Drift (§3.2): 8 s no input in lobby -> slow orbit 4°/s (paused when walking hub follow is active)
+    if (
+      this.isLobbyMode &&
+      !this.hubFollowActive &&
+      !this.photoMode &&
+      this.idleTimer >= 8 &&
+      !QualityManager.settings.reducedMotion
+    ) {
       this.desiredYaw += THREE.MathUtils.degToRad(4) * dt;
     }
 

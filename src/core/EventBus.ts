@@ -70,6 +70,23 @@ export interface GameEvents {
     storyChapterId?: number;
     modifiers?: Record<string, number>;
   };
+  'input:mode_changed': { mode: 'keyboard' | 'touch' };
+  'keybinds:changed': void;
+  'ui:subtitle': { speaker: string; text: string; duration?: number };
+  'ui:hold_progress': { active: boolean; progress: number; label: string; x: number; y: number };
+  'ui:toggle_fast_menu': void;
+  'ui:try_unit': { unitId: string };
+  'hub:station_prompt': {
+    stationId: string | null;
+    label: string;
+    keyHint: string;
+    screenX: number;
+    screenY: number;
+    holdProgress: number;
+  };
+  'hub:celebrate': void;
+  'tower:upgrade_fx_line': { towerId: string; fromX: number; fromY: number };
+  'vfx:currency_fly': { kind: 'seeds' | 'dewdrops'; amount: number; fromX: number; fromY: number };
 }
 
 type Listener<T> = (payload: T) => void;

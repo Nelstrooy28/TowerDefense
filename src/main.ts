@@ -1,5 +1,6 @@
 import './styles/main.css';
 import { Engine } from './core/Engine';
+import { InputActions } from './core/InputActions';
 import { InputManager } from './core/InputManager';
 import { MatchController } from './simulation/MatchController';
 import { UIManager } from './ui/UIManager';
@@ -26,9 +27,12 @@ let lastTime = performance.now();
 function loop(now: number): void {
   const rawDt = (now - lastTime) / 1000;
   lastTime = now;
+  const clampedDt = Math.min(0.05, rawDt);
 
+  InputActions.update(clampedDt);
+  input.update(clampedDt);
   match.update(rawDt);
-  ui.update(Math.min(0.05, rawDt));
+  ui.update(clampedDt);
 
   requestAnimationFrame(loop);
 }

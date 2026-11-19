@@ -489,6 +489,11 @@ export class PropKitImpl {
     return g;
   }
 
+  public buildProp(kind: PropKind, x = 0, z = 0): THREE.Group {
+    const rng = seededRandom(hashCoords(x, z));
+    return this.buildSingleProp(kind, x, z, rng, []);
+  }
+
   public buildClusterProps(cluster: MapCluster, wobbleProps: THREE.Object3D[], pollenFlowers: THREE.Mesh[]): THREE.Group {
     const group = new THREE.Group();
     const rng = seededRandom(hashCoords(cluster.at[0], cluster.at[1]) + (cluster.seedOffset ?? 0));

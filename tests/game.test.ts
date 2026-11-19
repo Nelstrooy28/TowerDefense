@@ -3,9 +3,13 @@ import * as THREE from 'three';
 import { UNITS, getUnitById } from '../src/data/UnitRegistry';
 import { TRAITS, TRAIT_ORDER, migrateTraitId } from '../src/data/TraitConfig';
 import { RARITIES, RARITY_ORDER } from '../src/data/RarityConfig';
-import { computeScaledEnemyHP } from '../src/data/EnemyRegistry';
+import { computeScaledEnemyHP, ENEMIES, type EnemyTypeId } from '../src/data/EnemyRegistry';
 import { DIFFICULTY_ORDER, DIFFICULTY_LADDER, computeModifierEffects } from '../src/data/BalanceConfig';
 import { MAPS } from '../src/data/MapRegistry';
+import { VFX_RECIPES, ELEMENT_COLORS, getRecipeCountForTier } from '../src/data/VFXRecipes';
+import { Keybinds } from '../src/core/Keybinds';
+import { BugRigKit, BUG_RIG_DEFS } from '../src/rendering/bugs/BugRigKit';
+import { TowerEntity } from '../src/simulation/TowerEntity';
 import { PlacementSystem } from '../src/simulation/PlacementSystem';
 import { mapV1PotSkinToSoilSkin, migrateSaveToV2, migrateSaveToV3, SaveManager } from '../src/core/SaveManager';
 
@@ -127,5 +131,72 @@ describe('Garden Bastion TD v4 Math & Registries', () => {
     expect(v3.owned.tomato_tosser.variant).toBe('none');
     expect(v3.unlockedDifficulties).toEqual({});
     expect(SaveManager.isDifficultyUnlocked('sunny_backyard', 'Easy')).toBe(true);
+  });
+});
+
+describe('Garden Bastion TD v5 Systems', () => {
+  it('configures GTD default keybinds, presets, conflict detection, and badges', () => {
+    Keybinds.setPreset('gtd', false);
+    expect(Keybinds.getPreset()).toBe('gtd');
+    expect(Keybinds.getSlots('upgrade')[0]).toBe('KeyE');
+    expect(Keybinds.getSlots('sell')[0]).toBe('KeyX');
+    expect(Keybinds.getSlots('manager')[0]).toBe('Tab');
+    expect(Keybinds.getSlots('speed_cycle')[0]).toBe('KeyF');
+    expect(Keybinds.badge('upgrade')).toContain('key-cap');
+
+    // Conflict check within Match category
+    const conflicts = Keybinds.findConflicts('KeyE', 'sell');
+    expect(conflicts.some((c) => c.action === 'upgrade')).toBe(true);
+
+    // Preset switch + swap
+    Keybinds.setPreset('classic', false);
+    expect(Keybinds.getSlots('upgrade')[0]).toBe('KeyU');
+    Keybinds.setPreset('left_hand', false);
+    expect(Keybinds.getPreset()).toBe('left_hand');
+
+    // Restore GTD default
+    Keybinds.setPreset('gtd', false);
+  });
+
+  it('builds all 20 enemy BugRigKit models and adds crown to Wave 10/30 Mini-Boss Kings', () => {
+    const ids = Object.keys(ENEMIES) as EnemyTypeId[];
+    expect(ids.length).toBe(20);
+    for (const id of ids) {
+      const rig = BugRigKit.buildBugRig(id);
+      expect(rig.root).toBeDefined();
+      expect(rig.bodyMeshes.length).toBeGreaterThanOrEqual(1);
+      if (!BUG_RIG_DEFS[id].head.hidden) {
+        expect(rig.eyes.length).toBeGreaterThanOrEqual(1);
+      }
+    }
+    const miniKing = BugRigKit.buildBugRig('garden_ant', { isMiniBoss: true });
+    expect(miniKing.crownMesh).not.toBeNull();
+  });
+
+  it('defines Low/Medium/High/Ultra tiers, priorities, and ELEMENT_COLORS on every VFX recipe', () => {
+    expect(ELEMENT_COLORS.fire.hex).toBe('#fb923c');
+    const recipes = Object.values(VFX_RECIPES);
+    expect(recipes.length).toBeGreaterThanOrEqual(40);
+    for (const r of recipes) {
+      expect(r.tiers.low).toBeGreaterThanOrEqual(1);
+      expect(r.tiers.medium).toBeGreaterThanOrEqual(r.tiers.low);
+      expect(r.tiers.high).toBeGreaterThanOrEqual(r.tiers.medium);
+      expect(r.tiers.ultra).toBeGreaterThanOrEqual(r.tiers.high);
+      expect(getRecipeCountForTier(r, 'Low')).toBe(r.tiers.low);
+      expect(['critical', 'high', 'normal', 'ambient']).toContain(r.priority);
+    }
+  });
+
+  it('includes Weakest in TowerEntity targeting cycle', () => {
+    const tower = new TowerEntity('tomato_tosser', 0, 0, 0, new THREE.Scene());
+    const seen = new Set<string>([tower.targeting]);
+    for (let i = 0; i < 6; i++) {
+      seen.add(tower.cycleTargeting());
+    }
+    expect(seen.has('First')).toBe(true);
+    expect(seen.has('Last')).toBe(true);
+    expect(seen.has('Strongest')).toBe(true);
+    expect(seen.has('Closest')).toBe(true);
+    expect(seen.has('Weakest')).toBe(true);
   });
 });

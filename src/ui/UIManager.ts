@@ -4,28 +4,25 @@ import { SaveManager } from '../core/SaveManager';
 import { EventBus } from '../core/EventBus';
 import { QualityManager } from '../core/QualityManager';
 import { TimeScale } from '../core/TimeScale';
-import { DIFFICULTIES, MAP_LIST, MAPS, type DifficultyId, type MapId } from '../data/MapRegistry';
+import { InputActions } from '../core/InputActions';
+import { Keybinds } from '../core/Keybinds';
+import { MAPS, type DifficultyId, type MapId } from '../data/MapRegistry';
 import {
   CURRENT_VERSION,
   DIFFICULTY_LADDER,
-  DIFFICULTY_ORDER,
-  MODIFIER_FAMILIES,
-  VARIANTS,
   computeModifierEffects,
-  getHourlyChallengeModifiers,
 } from '../data/BalanceConfig';
 import {
   GARDEN_PUZZLES,
   MODE_CATALOG,
   STORY_CHAPTERS,
-  getWeeklyChallengeForDate,
   type GameModeId,
 } from '../data/GameModesConfig';
-import { getUnitById } from '../data/UnitRegistry';
 import { computeTeamPower } from '../data/UnitQuery';
-import { ProceduralTextures } from '../rendering/ProceduralTextures';
+import type { HubStationId } from '../hub/Station';
 import { ScreenRouter } from './ScreenRouter';
 import { CombatHUD } from './CombatHUD';
+import { FastMenu, type HubWizardStep } from './screens/FastMenu';
 import { SynthAudio } from '../audio/SynthAudio';
 import type { SummonModal } from './SummonModal';
 import type { InventoryModal } from './InventoryModal';
@@ -35,20 +32,14 @@ import type { CodexModal } from './CodexModal';
 import type { GardenPassModal } from './GardenPassModal';
 import type { ShopAndExtrasModal, ShopExtrasTab } from './ShopAndExtrasModal';
 
-type HubWizardStep = 'mode' | 'map' | 'difficulty' | 'team';
-
-const GNOME_MILESTONES: Array<{ xp: number; unitId: string; label: string }> = [
-  { xp: 100, unitId: 'bramble_snare', label: 'Bramble Snare' },
-  { xp: 300, unitId: 'walnut_wall', label: 'Walnut Wall' },
-  { xp: 600, unitId: 'sunflower_producer', label: 'Sunny Sprout' },
-];
-
 export class UIManager {
   private root: HTMLElement;
   private match: MatchController;
   private input: InputManager;
 
   private lobbyEl: HTMLDivElement;
+  private stationPromptEl: HTMLDivElement;
+  private fastMenu: FastMenu;
   private combatHud: CombatHUD;
 
   // Lazy-loaded modals to keep initial JS chunk <= 550 KB
@@ -74,6 +65,8 @@ export class UIManager {
   private selectedStoryChapterId = 1;
   private selectedModifiers: Record<string, number> = {};
   private hubStep: HubWizardStep = 'mode';
+  private activePromptStation: HubStationId | null = null;
+
   private tutorialStep = 0;
   private confirmRestart = false;
   private confirmQuit = false;
@@ -92,8 +85,47 @@ export class UIManager {
     this.input = input;
 
     this.lobbyEl = document.createElement('div');
-    this.lobbyEl.className = 'lobby-screen';
+    this.lobbyEl.className = 'lobby-screen hub-hud-overlay';
     this.root.appendChild(this.lobbyEl);
+
+    this.stationPromptEl = document.createElement('div');
+    this.stationPromptEl.id = 'hub-station-prompt';
+    this.stationPromptEl.className = 'hub-station-prompt paper-panel hidden';
+    this.root.appendChild(this.stationPromptEl);
+    this.stationPromptEl.addEventListener('click', () => {
+      if (this.activePromptStation) {
+        this.handleStationOpen(this.activePromptStation);
+      }
+    });
+
+    this.fastMenu = new FastMenu(this.root, this.match, {
+      getWizardState: () => ({
+        mode: this.selectedMode,
+        puzzleId: this.selectedPuzzleId,
+        storyChapterId: this.selectedStoryChapterId,
+        modifiers: this.selectedModifiers,
+        step: this.hubStep,
+      }),
+      setWizardState: (patch) => {
+        if (patch.mode !== undefined) this.selectedMode = patch.mode;
+        if (patch.puzzleId !== undefined) this.selectedPuzzleId = patch.puzzleId;
+        if (patch.storyChapterId !== undefined) this.selectedStoryChapterId = patch.storyChapterId;
+        if (patch.modifiers !== undefined) this.selectedModifiers = patch.modifiers;
+        if (patch.step !== undefined) this.hubStep = patch.step;
+        this.renderLobby();
+      },
+      onNavigateStep: (step) => this.navigateWizard(step),
+      onLaunch: () => this.startSelectedMatch(),
+      onOpenInventory: () => void this.openInventory(),
+      onOpenSummon: () => void this.openSummon(),
+      onOpenShop: (tab) => void this.openShopAndExtras(tab),
+      onOpenQuests: () => void this.openQuests(),
+      onOpenPass: () => void this.openGardenPass(),
+      onOpenCodex: () => void this.openCodex(),
+      onOpenSettings: () => void this.openSettings(),
+      onPushToast: (title, subtitle, color) => this.pushToast(title, subtitle, color),
+      onCloseFastMenu: () => ScreenRouter.popAll(),
+    });
 
     this.combatHud = new CombatHUD(
       this.root,
@@ -131,44 +163,72 @@ export class UIManager {
       this.tutorialBox
     );
 
+    this.match.onHubStationInteract = (stationId) => this.handleStationOpen(stationId);
+
     this.registerScreens();
-    ScreenRouter.replace('hub');
+    if (QualityManager.settings.startInFastMenu) {
+      ScreenRouter.replace('hub');
+      ScreenRouter.push('fast_menu');
+    } else {
+      ScreenRouter.replace('hub');
+    }
+
     this.bindEvents();
     this.bindGlobalKeys();
   }
 
   private registerScreens(): void {
-    const enterStep = (step: HubWizardStep) => {
+    const enterWizard = (step: HubWizardStep) => {
       this.hubStep = step;
       this.lobbyEl.classList.remove('hidden');
+      this.fastMenu.open(step);
       this.renderLobby();
     };
 
     ScreenRouter.register({
       id: 'hub',
-      enter: () => enterStep('mode'),
+      enter: () => {
+        this.fastMenu.close();
+        this.lobbyEl.classList.remove('hidden');
+        this.match.hubWorld.exitStationFocus();
+        this.renderLobby();
+      },
       exit: () => {},
     });
+
+    ScreenRouter.register({
+      id: 'fast_menu',
+      enter: () => enterWizard(this.hubStep),
+      exit: () => {
+        this.fastMenu.close();
+        this.renderLobby();
+      },
+    });
+
     ScreenRouter.register({
       id: 'mode_select',
-      enter: () => enterStep('mode'),
+      enter: () => enterWizard('mode'),
       exit: () => {},
     });
+
     ScreenRouter.register({
       id: 'map_select',
-      enter: () => enterStep('map'),
+      enter: () => enterWizard('map'),
       exit: () => {},
     });
+
     ScreenRouter.register({
       id: 'difficulty_mods',
-      enter: () => enterStep('difficulty'),
+      enter: () => enterWizard('difficulty'),
       exit: () => {},
     });
+
     ScreenRouter.register({
       id: 'team_pick',
-      enter: () => enterStep('team'),
+      enter: () => enterWizard('team'),
       exit: () => {},
     });
+
     ScreenRouter.register({
       id: 'pause_menu',
       enter: () => {
@@ -189,9 +249,30 @@ export class UIManager {
     });
   }
 
+  private handleStationOpen(stationId: HubStationId): void {
+    if (this.match.inMatch || this.hasOpenModal()) return;
+    if (stationId === 'play_pads') {
+      ScreenRouter.push('mode_select');
+    } else if (stationId === 'greenhouse') {
+      void this.openSummon();
+    } else if (stationId === 'shed') {
+      void this.openInventory();
+    } else if (stationId === 'seed_shop') {
+      void this.openShopAndExtras('Shop');
+    } else if (stationId === 'mossbeard') {
+      void this.openQuests();
+    } else if (stationId === 'notice_board') {
+      void this.openShopAndExtras('WhatsNew');
+    } else if (stationId === 'trophy_podium') {
+      void this.openCodex();
+    } else if (stationId === 'fountain') {
+      void this.openSettings();
+    }
+  }
+
   private navigateWizard(step: HubWizardStep): void {
     const screenMap: Record<HubWizardStep, string> = {
-      mode: 'hub',
+      mode: 'mode_select',
       map: 'map_select',
       difficulty: 'difficulty_mods',
       team: 'team_pick',
@@ -199,8 +280,19 @@ export class UIManager {
     const id = screenMap[step];
     if (step === 'mode') {
       ScreenRouter.replace('hub');
+      ScreenRouter.push('mode_select');
     } else {
       ScreenRouter.push(id);
+    }
+    SynthAudio.play('click');
+  }
+
+  private toggleFastMenu(): void {
+    if (this.match.inMatch || this.hasOpenModal()) return;
+    if (this.fastMenu.isOpen) {
+      ScreenRouter.popAll();
+    } else {
+      ScreenRouter.push('fast_menu');
     }
     SynthAudio.play('click');
   }
@@ -322,12 +414,14 @@ export class UIManager {
   private renderPauseMenu(): void {
     const modeLabel = MODE_CATALOG.find((m) => m.id === this.match.gameMode)?.name ?? this.match.gameMode;
     this.pauseModal.innerHTML = `
-      <div class="pause-board paper-panel">
+      <div class="pause-board paper-panel paper-scroll-in">
         <div style="font-size:24px;font-weight:900;color:#fde047;">⏸ Match Paused</div>
         <div style="font-size:14px;color:#cbd5e1;">
           ${this.match.mapDef.name} • ${modeLabel} • ${this.match.difficultyId} (Wave ${Math.max(1, this.match.currentWave)})
         </div>
-        <button class="seed-pod-btn" id="pause-resume" style="width:100%;">▶ Resume Match [Esc]</button>
+        <button class="seed-pod-btn" id="pause-resume" style="width:100%;">
+          ▶ Resume Match ${Keybinds.badge('pause_menu')}
+        </button>
         <button class="btn btn-gold" id="pause-restart" style="width:100%;">
           ${this.confirmRestart ? '⚠️ Confirm Restart Match?' : '🔄 Restart Match'}
         </button>
@@ -335,6 +429,7 @@ export class UIManager {
         <button class="btn btn-rose" id="pause-quit" style="width:100%;">
           ${this.confirmQuit ? '⚠️ Confirm Quit to Garden Hub?' : '🏠 Quit to Garden Hub'}
         </button>
+        <div style="font-size:14px;color:#94a3b8;">Tip: Press ${Keybinds.badge('help_overlay')} anytime for keybinds!</div>
       </div>
     `;
 
@@ -379,59 +474,80 @@ export class UIManager {
   }
 
   private bindGlobalKeys(): void {
-    // Capture phase checks active selection BEFORE InputManager clears it on Escape
-    document.addEventListener(
-      'keydown',
-      (e) => {
-        const tag = (e.target as HTMLElement | null)?.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
-        if (e.code === 'Escape') {
-          if (this.closeTopModal()) {
-            e.stopPropagation();
-            return;
-          }
-          if (this.summonModal && !this.summonModal.root.classList.contains('hidden')) {
-            return;
-          }
-          if (this.match.inMatch) {
-            if (this.input.activeSlotIndex !== null || this.input.selectedTower !== null) {
-              return; // Let InputManager clear selection first
-            }
-            e.preventDefault();
-            this.togglePauseMenu();
-            return;
-          }
-          if (ScreenRouter.pop()) {
-            e.preventDefault();
-            SynthAudio.play('click');
-          }
-          return;
+    const handleBack = (_m: unknown, e?: KeyboardEvent) => {
+      if (this.closeTopModal()) {
+        e?.preventDefault();
+        return true;
+      }
+      if (this.match.inMatch) {
+        if (this.input.activeSlotIndex !== null || this.input.selectedTower !== null) {
+          return false; // InputManager priority-10 handles cancel first
         }
+        e?.preventDefault();
+        this.togglePauseMenu();
+        return true;
+      }
+      if (ScreenRouter.pop()) {
+        e?.preventDefault();
+        SynthAudio.play('click');
+        return true;
+      }
+      return false;
+    };
 
-        if (this.match.inMatch || this.hasOpenModal()) return;
+    InputActions.onDown('pause_menu', handleBack, 0);
 
-        if (e.code === 'Enter') {
-          e.preventDefault();
-          this.startSelectedMatch();
-        } else if (e.code === 'KeyU') {
-          void this.openInventory();
-        } else if (e.code === 'KeyS') {
-          void this.openSummon();
-        } else if (e.code === 'KeyH') {
-          void this.openShopAndExtras('Shop');
-        } else if (e.code === 'KeyQ') {
-          void this.openQuests();
-        } else if (e.code === 'KeyB') {
-          void this.openCodex();
-        } else if (e.code === 'KeyO') {
-          void this.openSettings();
-        } else if (e.code === 'KeyX') {
-          void this.openShopAndExtras('Codes');
-        }
+    InputActions.onDown(
+      'hub_fast_menu',
+      (_m, e) => {
+        if (this.match.inMatch || this.hasOpenModal()) return false;
+        e?.preventDefault();
+        this.toggleFastMenu();
+        return true;
       },
-      true
+      0
     );
+
+    InputActions.onDown(
+      'start_wave',
+      (_m, e) => {
+        if (this.match.inMatch || this.hasOpenModal()) return false;
+        e?.preventDefault();
+        this.startSelectedMatch();
+        return true;
+      },
+      0
+    );
+
+    const bindHubShortcut = (
+      action:
+        | 'hub_units'
+        | 'hub_summon'
+        | 'hub_shop'
+        | 'hub_quests'
+        | 'hub_codex'
+        | 'hub_settings'
+        | 'hub_extras',
+      fn: () => void
+    ) => {
+      InputActions.onDown(
+        action,
+        () => {
+          if (this.match.inMatch || this.hasOpenModal()) return false;
+          fn();
+          return true;
+        },
+        0
+      );
+    };
+
+    bindHubShortcut('hub_units', () => void this.openInventory());
+    bindHubShortcut('hub_summon', () => void this.openSummon());
+    bindHubShortcut('hub_shop', () => void this.openShopAndExtras('Shop'));
+    bindHubShortcut('hub_quests', () => void this.openQuests());
+    bindHubShortcut('hub_codex', () => void this.openCodex());
+    bindHubShortcut('hub_settings', () => void this.openSettings());
+    bindHubShortcut('hub_extras', () => void this.openShopAndExtras('Codes'));
   }
 
   private bindEvents(): void {
@@ -439,7 +555,23 @@ export class UIManager {
       if (!this.match.inMatch) {
         this.match.rebuildHubGarden();
         this.renderLobby();
+        this.fastMenu.render();
       }
+    });
+
+    EventBus.on('keybinds:changed', () => {
+      if (!this.match.inMatch) {
+        this.renderLobby();
+        this.fastMenu.render();
+      }
+    });
+
+    EventBus.on('ui:toggle_fast_menu', () => {
+      this.toggleFastMenu();
+    });
+
+    EventBus.on('ui:try_unit', ({ unitId }) => {
+      this.launchTryUnit(unitId);
     });
 
     EventBus.on('ui:open_unit_inventory', ({ unitId }) => {
@@ -463,6 +595,28 @@ export class UIManager {
         storyChapterId,
         modifiers ?? {}
       );
+    });
+
+    EventBus.on('hub:station_prompt', ({ stationId, label, keyHint, screenX, screenY, holdProgress }) => {
+      this.activePromptStation = stationId as HubStationId | null;
+      if (!stationId || this.match.inMatch || this.fastMenu.isOpen || this.hasOpenModal()) {
+        this.stationPromptEl.classList.add('hidden');
+        return;
+      }
+      this.stationPromptEl.classList.remove('hidden');
+      this.stationPromptEl.style.left = `${Math.round(screenX)}px`;
+      this.stationPromptEl.style.top = `${Math.round(screenY)}px`;
+      const pct = Math.round(holdProgress * 100);
+      this.stationPromptEl.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${Keybinds.badge('hub_interact')}
+          <div>
+            <div style="font-size:15px;font-weight:900;color:#fde047;">${label}</div>
+            <div style="font-size:14px;color:#cbd5e1;">${keyHint}</div>
+          </div>
+        </div>
+        ${pct > 0 ? `<div class="gnome-track-bar" style="height:5px;margin-top:4px;"><div class="gnome-track-fill" style="width:${pct}%"></div></div>` : ''}
+      `;
     });
 
     EventBus.on('toast:show', ({ title, subtitle, color }) => {
@@ -528,474 +682,100 @@ export class UIManager {
 
   private renderLobby(): void {
     const d = SaveManager.data;
-    const canSummon = d.seeds >= 100 || d.enchantedKeys > 0 || d.eventTickets > 0;
-    const claimableQuests = d.dailyQuests.filter((q) => !q.claimed && q.progress >= q.target).length;
     const xpNeeded = d.playerLevel * 200;
     const boosts = SaveManager.getActiveBoosts();
     const unreadNews = d.whatsNewSeenVersion !== CURRENT_VERSION;
+    const claimableQuests = d.dailyQuests.filter((q) => !q.claimed && q.progress >= q.target).length;
 
-    // Ensure selectedDifficulty is unlocked on the selected map
     if (!SaveManager.isDifficultyUnlocked(d.selectedMap, d.selectedDifficulty)) {
       d.selectedDifficulty = 'Easy';
     }
 
-    const activeModMap =
-      this.selectedMode === 'hourly' ? getHourlyChallengeModifiers().modifiers : this.selectedModifiers;
-    const modEffects = computeModifierEffects(activeModMap);
-    const modBonusPct = Math.round(modEffects.seedBonusTotal * 100);
-    const teamEval = computeTeamPower(d.loadout, d.owned);
     const diffDef = DIFFICULTY_LADDER[d.selectedDifficulty] ?? DIFFICULTY_LADDER.Easy;
     const selectedMapDef = MAPS[d.selectedMap] ?? MAPS.sunny_backyard;
-
-    const wizardContentHtml = this.renderWizardStepBody(
-      d.selectedMap,
-      d.selectedDifficulty,
-      activeModMap,
-      modBonusPct,
-      teamEval,
-      diffDef.recommendedPower
-    );
-
-    const nextMilestone = GNOME_MILESTONES.find((m) => !d.questGnomeClaimed.includes(m.xp));
-    const gnomeTargetXp = nextMilestone ? nextMilestone.xp : 600;
-    const gnomePct = Math.min(100, Math.round((d.questGnomeXp / gnomeTargetXp) * 100));
-    const canClaimGnome = Boolean(nextMilestone && d.questGnomeXp >= nextMilestone.xp);
-
-    const podiumEntries = d.endlessPodium[d.selectedMap] ?? [];
-    const podiumText =
-      podiumEntries.length > 0
-        ? podiumEntries.map((e, i) => `#${i + 1} W${e.wave}`).join(' • ')
-        : 'No Endless records yet — clear Endless waves to claim the podium!';
-
     const modeMeta = MODE_CATALOG.find((m) => m.id === this.selectedMode) ?? MODE_CATALOG[0];
+    const teamEval = computeTeamPower(d.loadout, d.owned);
 
     this.lobbyEl.innerHTML = `
-      <div class="lobby-topbar">
-        <div class="lobby-brand paper-panel">
-          <div style="font-size:30px;">🌻</div>
-          <div>
-            <div class="lobby-title">Garden Bastion TD <span style="font-size:14px;color:#86efac;">v${CURRENT_VERSION}</span></div>
-            <div style="font-size:14px;color:#cbd5e1;">Lv.${d.playerLevel} Gardener (${d.playerXp}/${xpNeeded} XP) • Pass T${d.gardenPass.tier}</div>
+      <div class="hub-top-bar">
+        <div class="hud-group" style="pointer-events:auto;">
+          <button class="leaf-tab-btn" id="hub-fast-menu-btn">
+            ☰ Menu ${Keybinds.badge('hub_fast_menu')}
+          </button>
+          <div class="lobby-brand paper-panel" style="padding:6px 12px;">
+            <div style="font-size:24px;">🌻</div>
+            <div>
+              <div class="lobby-title" style="font-size:18px;">Garden Bastion TD <span style="font-size:14px;color:#86efac;">v${CURRENT_VERSION}</span></div>
+              <div style="font-size:14px;color:#cbd5e1;">Lv.${d.playerLevel} Gardener (${d.playerXp}/${xpNeeded}) • Pass T${d.gardenPass.tier}</div>
+            </div>
+            ${boosts.doubleSeeds ? `<span class="stat-pill" style="border-color:#4ade80;color:#4ade80;">🌱 ×2</span>` : ''}
+            ${boosts.doubleLuck ? `<span class="stat-pill" style="border-color:#fde047;color:#fde047;">🍀 ×2</span>` : ''}
           </div>
-          ${boosts.doubleSeeds ? `<span class="stat-pill" style="border-color:#4ade80;color:#4ade80;">🌱 ×2 Weekend Seeds</span>` : ''}
-          ${boosts.doubleLuck ? `<span class="stat-pill" style="border-color:#fde047;color:#fde047;">🍀 ×2 Luck Hour</span>` : ''}
         </div>
 
-        <div class="currency-strip">
+        <div class="currency-strip" style="pointer-events:auto;">
           <div class="stat-pill">🌱 ${d.seeds} Seeds</div>
           <div class="stat-pill">💧 ${d.dewdrops} Dewdrops</div>
           <div class="stat-pill">🎫 ${d.eventTickets} Tickets</div>
+          <button class="leaf-tab-btn" id="hub-quests-top-btn">
+            📜 ${claimableQuests > 0 ? `<span class="badge-dot">${claimableQuests}</span>` : Keybinds.badge('hub_quests')}
+          </button>
           <button class="leaf-tab-btn" id="lobby-news-btn">
-            📰 What's New ${unreadNews ? '<span class="badge-new">NEW</span>' : ''}
+            📰 News ${unreadNews ? '<span class="badge-new">NEW</span>' : ''}
           </button>
-          <button class="leaf-tab-btn" id="lobby-settings-top">⚙️ [O]</button>
+          <button class="leaf-tab-btn" id="lobby-settings-top">⚙️ ${Keybinds.badge('hub_settings')}</button>
         </div>
       </div>
 
-      <div class="hub-layout">
-        <div class="hub-signs-col">
-          <button class="wood-sign-btn ${this.hubStep ? 'active' : ''}" id="sign-play" data-hub-focus="play">
-            <span>▶ Play & Setup</span><span style="font-size:14px;opacity:0.85;">[Enter]</span>
-          </button>
-          <button class="wood-sign-btn" id="lobby-inv-btn" data-hub-focus="hub">
-            <span>🌿 Units & Presets (${d.loadout.filter(Boolean).length}/6)</span><span style="font-size:14px;opacity:0.85;">[U]</span>
-          </button>
-          <button class="wood-sign-btn" id="lobby-summon-btn" data-hub-focus="summon">
-            <span>🎁 Summon Crates ${canSummon ? '<span class="badge-dot">!</span>' : ''}</span><span style="font-size:14px;opacity:0.85;">[S]</span>
-          </button>
-          <button class="wood-sign-btn" id="lobby-shop-btn" data-hub-focus="shop">
-            <span>🛒 Weekly Seed Shop</span><span style="font-size:14px;opacity:0.85;">[H]</span>
-          </button>
-          <button class="wood-sign-btn" id="lobby-quests-btn" data-hub-focus="hub">
-            <span>📜 Quests ${claimableQuests > 0 ? `<span class="badge-dot">${claimableQuests}</span>` : ''}</span><span style="font-size:14px;opacity:0.85;">[Q]</span>
-          </button>
-          <button class="wood-sign-btn" id="lobby-pass-btn" data-hub-focus="hub">
-            <span>🌸 Garden Pass (T${d.gardenPass.tier})</span><span style="font-size:14px;opacity:0.85;">Pass</span>
-          </button>
-          <button class="wood-sign-btn" id="lobby-codex-btn" data-hub-focus="hub">
-            <span>📖 Bestiary & Ranks</span><span style="font-size:14px;opacity:0.85;">[B]</span>
-          </button>
-          <button class="wood-sign-btn" id="lobby-codes-btn" data-hub-focus="shop">
-            <span>🎁 Codes & Extras</span><span style="font-size:14px;opacity:0.85;">[X]</span>
-          </button>
-          <button class="wood-sign-btn" id="lobby-settings-btn" data-hub-focus="hub">
-            <span>⚙️ Settings</span><span style="font-size:14px;opacity:0.85;">[O]</span>
-          </button>
-
-          <div class="hub-gnome-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:800;color:#fde047;">
-              <span>🧙 Old Mossbeard</span>
-              <span>${d.questGnomeXp}/${gnomeTargetXp} XP</span>
-            </div>
-            <div class="gnome-track-bar"><div class="gnome-track-fill" style="width:${gnomePct}%"></div></div>
-            ${
-              nextMilestone
-                ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;">
-                    <span style="color:#cbd5e1;">Next: ${nextMilestone.label}</span>
-                    ${
-                      canClaimGnome
-                        ? `<button class="btn btn-gold btn-sm" id="claim-gnome-btn">Claim!</button>`
-                        : `<span style="color:#94a3b8;">Win waves</span>`
-                    }
-                  </div>`
-                : `<div style="font-size:14px;color:#4ade80;font-weight:700;">All Gnome rewards claimed!</div>`
-            }
-          </div>
-        </div>
-
-        <div></div>
-
-        <div class="hub-stage-panel paper-panel">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-            <div style="font-size:18px;font-weight:900;color:#fde047;">${modeMeta.icon} ${modeMeta.name} — ${selectedMapDef.name}</div>
-            ${
-              this.hubStep !== 'mode'
-                ? `<button class="leaf-tab-btn" id="wizard-back-btn">← Back [Esc]</button>`
-                : ''
-            }
-          </div>
-
-          <div class="hub-wizard-steps">
-            <button class="leaf-tab-btn ${this.hubStep === 'mode' ? 'active' : ''}" data-step="mode">1. Mode</button>
-            <button class="leaf-tab-btn ${this.hubStep === 'map' ? 'active' : ''}" data-step="map">2. Map</button>
-            <button class="leaf-tab-btn ${this.hubStep === 'difficulty' ? 'active' : ''}" data-step="difficulty">3. Diff & Mods</button>
-            <button class="leaf-tab-btn ${this.hubStep === 'team' ? 'active' : ''}" data-step="team">4. Team</button>
-          </div>
-
-          <div style="flex:1;min-height:0;overflow-y:auto;padding-right:4px;">
-            ${wizardContentHtml}
-          </div>
-
-          <div style="border-top:1px solid rgba(255,255,255,0.14);padding-top:10px;display:flex;flex-direction:column;gap:8px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;color:#cbd5e1;">
-              <span>Team Power: <strong style="color:${teamEval.power >= diffDef.recommendedPower ? '#4ade80' : '#fbbf24'};">${teamEval.power.toLocaleString()}</strong> / Rec ${diffDef.recommendedPower.toLocaleString()}</span>
-              <span>${modBonusPct > 0 ? `<strong style="color:#fde047;">+${modBonusPct}% Mod Seeds</strong>` : d.selectedDifficulty}</span>
-            </div>
-            <button class="seed-pod-btn" id="lobby-play-btn" style="width:100%;">
-              ▶ Play ${
-                this.selectedMode === 'puzzle'
-                  ? `Puzzle #${this.selectedPuzzleId}`
-                  : this.selectedMode === 'story'
-                    ? `Story Ch.${this.selectedStoryChapterId}`
-                    : `${modeMeta.name} (${d.selectedDifficulty})`
-              }
-            </button>
-          </div>
-        </div>
+      <div class="hub-controls-hint paper-panel">
+        <span>Walk ${Keybinds.badge('cam_up')}${Keybinds.badge('cam_left')}${Keybinds.badge('cam_down')}${Keybinds.badge('cam_right')}</span>
+        <span>Run ${Keybinds.badge('hub_run')}</span>
+        <span>Jump ${Keybinds.badge('hub_jump')}</span>
+        <span>Interact ${Keybinds.badge('hub_interact')}</span>
+        <span>Fast Menu ${Keybinds.badge('hub_fast_menu')}</span>
+        <span>Help ${Keybinds.badge('help_overlay')}</span>
       </div>
 
-      <div class="podium-strip">
-        <div><strong style="color:#fde047;">🏆 ${selectedMapDef.name} Endless Podium:</strong> ${podiumText}</div>
-        <div style="color:#94a3b8;">Enter Play • U Units • S Summon • H Shop • Esc Back</div>
+      <div class="hub-quick-launch paper-panel ${this.fastMenu.isOpen ? 'hidden' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <div style="font-size:15px;font-weight:900;color:#fde047;">${modeMeta.icon} ${selectedMapDef.name}</div>
+          <span style="font-size:14px;color:${teamEval.power >= diffDef.recommendedPower ? '#4ade80' : '#fbbf24'};">PWR ${teamEval.power.toLocaleString()}</span>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-slate btn-sm" id="hub-setup-btn" style="flex:1;">🗺 Mode & Setup</button>
+          <button class="btn btn-green btn-sm" id="hub-units-btn" style="flex:1;">🌿 Units ${Keybinds.badge('hub_units')}</button>
+        </div>
+        <button class="seed-pod-btn" id="lobby-play-btn" style="width:100%;">
+          ▶ Play ${
+            this.selectedMode === 'puzzle'
+              ? `Puzzle #${this.selectedPuzzleId}`
+              : this.selectedMode === 'story'
+                ? `Story Ch.${this.selectedStoryChapterId}`
+                : `${modeMeta.name} (${d.selectedDifficulty})`
+          } ${Keybinds.badge('start_wave')}
+        </button>
       </div>
     `;
 
-    // Bind navigation signs + hub hover camera framing
-    this.lobbyEl.querySelectorAll('[data-hub-focus]').forEach((el) => {
-      el.addEventListener('mouseenter', () => {
-        const target = (el as HTMLElement).dataset.hubFocus as 'hub' | 'summon' | 'shop' | 'play';
-        EventBus.emit('ui:hub_focus', { target });
-        if (target === 'summon') this.match.engine.cameraRig.focusPoint(-4, 0, 22);
-        else if (target === 'shop') this.match.engine.cameraRig.focusPoint(4, 1, 22);
-        else this.match.engine.cameraRig.focusPoint(0, 2, 24);
-      });
-    });
-
-    this.lobbyEl.querySelector('#sign-play')!.addEventListener('click', () => {
-      this.navigateWizard('mode');
-    });
-
-    this.lobbyEl.querySelectorAll('[data-step]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const step = (btn as HTMLElement).dataset.step as HubWizardStep;
-        this.navigateWizard(step);
-      });
-    });
-
-    this.lobbyEl.querySelector('#wizard-back-btn')?.addEventListener('click', () => {
-      ScreenRouter.pop();
-      SynthAudio.play('click');
-    });
-
-    // Mode, puzzle, story, map, difficulty, modifier, preset bindings
-    this.lobbyEl.querySelectorAll('[data-mode]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        this.selectedMode = (btn as HTMLElement).dataset.mode as GameModeId;
-        SynthAudio.play('click');
-        this.renderLobby();
-      });
-    });
-
-    this.lobbyEl.querySelectorAll('[data-puz]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        this.selectedPuzzleId = Number((btn as HTMLElement).dataset.puz);
-        SynthAudio.play('click');
-        this.renderLobby();
-      });
-    });
-
-    this.lobbyEl.querySelectorAll('[data-story]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        this.selectedStoryChapterId = Number((btn as HTMLElement).dataset.story);
-        SynthAudio.play('click');
-        this.renderLobby();
-      });
-    });
-
-    this.lobbyEl.querySelectorAll('[data-map]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const mapId = (btn as HTMLElement).dataset.map as MapId;
-        SaveManager.data.selectedMap = mapId;
-        if (!SaveManager.isDifficultyUnlocked(mapId, SaveManager.data.selectedDifficulty)) {
-          SaveManager.data.selectedDifficulty = 'Easy';
-        }
-        SaveManager.save();
-        this.match.loadDiorama(mapId);
-        SynthAudio.play('click');
-      });
-    });
-
-    this.lobbyEl.querySelectorAll('[data-diff]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const diff = (btn as HTMLElement).dataset.diff as DifficultyId;
-        if (!SaveManager.isDifficultyUnlocked(SaveManager.data.selectedMap, diff)) return;
-        SaveManager.data.selectedDifficulty = diff;
-        SaveManager.save();
-        SynthAudio.play('click');
-      });
-    });
-
-    this.lobbyEl.querySelectorAll('[data-mod-id]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const id = (btn as HTMLElement).dataset.modId!;
-        const tier = Number((btn as HTMLElement).dataset.modTier ?? 0);
-        if (tier <= 0) delete this.selectedModifiers[id];
-        else this.selectedModifiers[id] = tier;
-        SynthAudio.play('click');
-        this.renderLobby();
-      });
-    });
-
-    this.lobbyEl.querySelectorAll('[data-preset-idx]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const idx = Number((btn as HTMLElement).dataset.presetIdx);
-        SaveManager.switchTeamPreset(idx);
-        SynthAudio.play('click');
-      });
-    });
-
-    this.lobbyEl.querySelector('#claim-gnome-btn')?.addEventListener('click', () => {
-      if (!nextMilestone) return;
-      if (SaveManager.claimQuestGnomeMilestone(nextMilestone.xp, nextMilestone.unitId)) {
-        this.pushToast('🧙 Old Mossbeard Reward!', `Unlocked ${nextMilestone.label}!`, '#fde047');
-        SynthAudio.play('crate_fanfare');
-      }
-    });
-
-    this.lobbyEl.querySelector('#wizard-open-inv')?.addEventListener('click', () => void this.openInventory());
-    this.lobbyEl.querySelector('#lobby-summon-btn')!.addEventListener('click', () => void this.openSummon());
-    this.lobbyEl.querySelector('#lobby-inv-btn')!.addEventListener('click', () => void this.openInventory());
-    this.lobbyEl.querySelector('#lobby-shop-btn')!.addEventListener('click', () => void this.openShopAndExtras('Shop'));
-    this.lobbyEl.querySelector('#lobby-pass-btn')!.addEventListener('click', () => void this.openGardenPass());
-    this.lobbyEl.querySelector('#lobby-quests-btn')!.addEventListener('click', () => void this.openQuests());
-    this.lobbyEl.querySelector('#lobby-codex-btn')!.addEventListener('click', () => void this.openCodex());
-    this.lobbyEl.querySelector('#lobby-codes-btn')!.addEventListener('click', () => void this.openShopAndExtras('Codes'));
-    this.lobbyEl.querySelector('#lobby-settings-btn')!.addEventListener('click', () => void this.openSettings());
-    this.lobbyEl.querySelector('#lobby-settings-top')!.addEventListener('click', () => void this.openSettings());
+    this.lobbyEl.querySelector('#hub-fast-menu-btn')!.addEventListener('click', () => this.toggleFastMenu());
+    this.lobbyEl.querySelector('#hub-setup-btn')!.addEventListener('click', () => ScreenRouter.push('mode_select'));
+    this.lobbyEl.querySelector('#hub-units-btn')!.addEventListener('click', () => void this.openInventory());
+    this.lobbyEl.querySelector('#hub-quests-top-btn')!.addEventListener('click', () => void this.openQuests());
     this.lobbyEl.querySelector('#lobby-news-btn')!.addEventListener('click', () => void this.openShopAndExtras('WhatsNew'));
+    this.lobbyEl.querySelector('#lobby-settings-top')!.addEventListener('click', () => void this.openSettings());
     this.lobbyEl.querySelector('#lobby-play-btn')!.addEventListener('click', () => this.startSelectedMatch());
   }
 
-  private renderWizardStepBody(
-    selectedMap: MapId,
-    selectedDifficulty: DifficultyId,
-    activeModMap: Record<string, number>,
-    modBonusPct: number,
-    teamEval: { power: number; warnings: string[] },
-    recommendedPower: number
-  ): string {
-    const d = SaveManager.data;
-    if (this.hubStep === 'mode') {
-      const weekly = getWeeklyChallengeForDate();
-      const hourly = getHourlyChallengeModifiers();
-      let subHtml = '';
-      if (this.selectedMode === 'weekly') {
-        subHtml = `
-          <div class="gloss-panel" style="padding:10px;margin-top:8px;">
-            <div style="font-size:16px;font-weight:800;color:#fde047;">📅 ${weekly.title}</div>
-            <div style="font-size:14px;color:#cbd5e1;">${weekly.description} (${MAPS[weekly.mapId].name})</div>
-          </div>`;
-      } else if (this.selectedMode === 'hourly') {
-        const modNames = Object.entries(hourly.modifiers)
-          .map(([id, t]) => `${MODIFIER_FAMILIES.find((m) => m.id === id)?.name ?? id} T${t}`)
-          .join(' • ');
-        subHtml = `
-          <div class="gloss-panel" style="padding:10px;margin-top:8px;">
-            <div style="font-size:16px;font-weight:800;color:#38bdf8;">⏰ Hourly Modifiers (${hourly.hourKey})</div>
-            <div style="font-size:14px;color:#cbd5e1;">${modNames} (+${hourly.seedBonusPct}% Seeds Bonus)</div>
-          </div>`;
-      } else if (this.selectedMode === 'puzzle') {
-        subHtml = `
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
-            ${GARDEN_PUZZLES.map((p) => {
-              const stars = d.puzzleStars[p.id] ?? 0;
-              return `
-                <button class="map-chip ${this.selectedPuzzleId === p.id ? 'active' : ''}" data-puz="${p.id}">
-                  <div style="font-weight:800;">#${p.id} ${p.title}</div>
-                  <div style="font-size:14px;color:#fde047;">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>
-                </button>`;
-            }).join('')}
-          </div>`;
-      } else if (this.selectedMode === 'story') {
-        subHtml = `
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;">
-            ${STORY_CHAPTERS.map((ch) => {
-              const cleared = d.storyCleared.includes(ch.id);
-              return `
-                <button class="map-chip ${this.selectedStoryChapterId === ch.id ? 'active' : ''}" data-story="${ch.id}">
-                  <div style="font-weight:800;">${ch.title} ${cleared ? '✓' : ''}</div>
-                  <div style="font-size:14px;color:#86efac;">${ch.lesson}</div>
-                </button>`;
-            }).join('')}
-          </div>`;
-      }
-
-      return `
-        <div class="mode-card-grid">
-          ${MODE_CATALOG.map((m) => {
-            const active = this.selectedMode === m.id;
-            return `
-              <button class="mode-card ${active ? 'active' : ''}" data-mode="${m.id}">
-                <div style="display:flex;justify-content:space-between;font-weight:800;">
-                  <span>${m.icon} ${m.name}</span>
-                  <span style="color:#86efac;">${m.rewardText}</span>
-                </div>
-                <div style="font-size:14px;color:#cbd5e1;margin-top:3px;">${m.tagline}</div>
-              </button>`;
-          }).join('')}
-        </div>
-        ${subHtml}
-      `;
-    }
-
-    if (this.hubStep === 'map') {
-      return `
-        <div class="map-option-grid">
-          ${MAP_LIST.map((m) => {
-            const active = selectedMap === m.id;
-            return `
-              <button class="map-chip ${active ? 'active' : ''}" data-map="${m.id}">
-                <div style="display:flex;justify-content:space-between;font-weight:800;">
-                  <span>${m.name}</span>
-                  <span style="color:#86efac;">${m.tierLabel} • ${m.paths.length} Lane${m.paths.length > 1 ? 's' : ''}</span>
-                </div>
-                <div style="font-size:14px;color:#cbd5e1;margin-top:2px;">${m.description}</div>
-              </button>`;
-          }).join('')}
-        </div>
-      `;
-    }
-
-    if (this.hubStep === 'difficulty') {
-      const isHourly = this.selectedMode === 'hourly';
-      return `
-        <div style="font-size:15px;font-weight:800;color:#86efac;margin-bottom:6px;">Garden Soil Tier Difficulty</div>
-        <div class="diff-pot-row" style="margin-bottom:12px;">
-          ${DIFFICULTY_ORDER.map((diff) => {
-            const def = DIFFICULTIES[diff];
-            const ladder = DIFFICULTY_LADDER[diff];
-            const unlocked = SaveManager.isDifficultyUnlocked(selectedMap, diff);
-            const active = selectedDifficulty === diff;
-            return `
-              <button class="diff-pot-btn ${active ? 'active' : ''}" data-diff="${diff}" ${unlocked ? '' : 'disabled'}
-                style="color:${unlocked ? def.badgeColor : '#94a3b8'};"
-                title="${unlocked ? `${ladder.waves} Waves • ${ladder.unlockRule}` : `Locked: ${ladder.unlockRule}`}">
-                <div>${unlocked ? '' : '🔒 '}${diff}</div>
-                <div style="font-size:14px;color:#fde047;">+${def.clearRewardSeeds}🌱</div>
-              </button>`;
-          }).join('')}
-        </div>
-
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="font-size:15px;font-weight:800;color:#fde047;">⚔ Modifier Board (${modBonusPct > 0 ? `+${modBonusPct}% Seeds` : 'Optional Risk'})</span>
-          ${isHourly ? `<span style="font-size:14px;color:#38bdf8;">Locked to Hourly Seed</span>` : ''}
-        </div>
-        <div class="modifier-grid">
-          ${MODIFIER_FAMILIES.map((fam) => {
-            const cur = activeModMap[fam.id] ?? 0;
-            const desc = cur > 0 ? fam.effectDescriptions[cur - 1] : 'Off (Standard rules)';
-            return `
-              <div class="modifier-cell">
-                <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:800;">
-                  <span>${fam.icon} ${fam.name}</span>
-                  <span style="color:#fde047;">${cur > 0 ? `+${Math.round(fam.seedBonuses[cur - 1] * 100)}%` : '0%'}</span>
-                </div>
-                <div style="font-size:14px;color:#cbd5e1;">${desc}</div>
-                <div style="display:flex;gap:4px;">
-                  ${[0, 1, 2, 3, 4]
-                    .map(
-                      (t) => `
-                    <button class="btn btn-sm ${cur === t ? 'btn-gold' : 'btn-slate'}"
-                      style="flex:1;padding:2px 4px;min-height:30px;"
-                      data-mod-id="${fam.id}" data-mod-tier="${t}" ${isHourly ? 'disabled' : ''}>
-                      ${t === 0 ? '0' : `T${t}`}
-                    </button>`
-                    )
-                    .join('')}
-                </div>
-              </div>`;
-          }).join('')}
-        </div>
-      `;
-    }
-
-    // Step 4: Team Preset & Composition Warnings
-    return `
-      <div style="font-size:15px;font-weight:800;color:#86efac;margin-bottom:6px;">Team Presets</div>
-      <div class="leaf-tab-row" style="margin-bottom:10px;">
-        ${d.teamPresets
-          .map(
-            (p, idx) => `
-          <button class="leaf-tab-btn ${d.activePreset === idx ? 'active' : ''}" data-preset-idx="${idx}">
-            ${p.name}
-          </button>`
-          )
-          .join('')}
-        <button class="btn btn-slate btn-sm" id="wizard-open-inv">✏️ Edit Units</button>
-      </div>
-
-      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px;">
-        ${d.loadout
-          .map((uid, idx) => {
-            if (!uid) {
-              return `<div class="gloss-panel" style="padding:10px;text-align:center;color:#94a3b8;font-size:14px;">Slot ${idx + 1} Empty</div>`;
-            }
-            const u = getUnitById(uid);
-            const own = d.owned[uid];
-            const varDef = VARIANTS[own?.variant ?? 'none'];
-            return `
-              <div class="gloss-panel" style="padding:8px;display:flex;align-items:center;gap:8px;">
-                <img src="${ProceduralTextures.getUnitPortraitUrl(uid)}" alt="${u.name}" style="width:40px;height:40px;border-radius:8px;object-fit:cover;"/>
-                <div style="min-width:0;">
-                  <div style="font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.name}</div>
-                  <div style="font-size:14px;color:${varDef.color};">${varDef.id !== 'none' ? varDef.label : u.rarity} • $${u.levels[0].upgradeCost}</div>
-                </div>
-              </div>`;
-          })
-          .join('')}
-      </div>
-
-      <div class="gloss-panel" style="padding:10px;">
-        <div style="font-size:14px;font-weight:800;color:${teamEval.power >= recommendedPower ? '#4ade80' : '#fbbf24'};">
-          Power Check: ${teamEval.power.toLocaleString()} vs ${recommendedPower.toLocaleString()} Recommended
-        </div>
-        ${
-          teamEval.warnings.length > 0
-            ? `<div style="font-size:14px;color:#fda4af;margin-top:4px;">⚠️ ${teamEval.warnings.join(' • ')}</div>`
-            : `<div style="font-size:14px;color:#86efac;margin-top:4px;">✓ Balanced coverage for Anti-Air, Splash & Economy!</div>`
-        }
-      </div>
-    `;
+  private launchTryUnit(unitId: string): void {
+    this.closeTopModal();
+    ScreenRouter.popAll();
+    this.fastMenu.close();
+    this.lobbyEl.classList.add('hidden');
+    this.stationPromptEl.classList.add('hidden');
+    this.endModal.classList.add('hidden');
+    this.pauseModal.classList.add('hidden');
+    this.match.startTryUnitTest(unitId);
+    this.combatHud.show(true);
   }
 
   private startSelectedMatch(): void {
@@ -1020,7 +800,9 @@ export class UIManager {
   ): void {
     SynthAudio.play('click');
     ScreenRouter.popAll();
+    this.fastMenu.close();
     this.lobbyEl.classList.add('hidden');
+    this.stationPromptEl.classList.add('hidden');
     this.endModal.classList.add('hidden');
     this.pauseModal.classList.add('hidden');
 
@@ -1073,9 +855,9 @@ export class UIManager {
     }
     const msgs = [
       'Hi! Click card [1] Tomato Tosser below, then click the green lawn near the path to plant its roots!',
-      'Awesome! Now click your Tomato Tosser and press Upgrade (or U) to evolve its roots!',
-      'Great job! Try toggling the Speed button (1x/2x/3x) or pressing Start Wave!',
-      'Defend your Garden Bastion! After the match, open a Seed Summon Crate in the Lobby for +100 Seeds!',
+      `Awesome! Now click your Tomato Tosser and press Upgrade ${Keybinds.badge('upgrade')} (or Shift+Click) to evolve its roots!`,
+      `Great job! Try toggling Speed ${Keybinds.badge('speed_cycle')} or pressing Start Wave ${Keybinds.badge('start_wave')}!`,
+      'Defend your Garden Bastion! Visit the Greenhouse in the Hub after the match for +100 Bonus Seeds!',
     ];
     if (this.tutorialStep >= msgs.length) {
       SaveManager.data.tutorialCompleted = true;
@@ -1130,6 +912,9 @@ export class UIManager {
         <div class="modal-body" style="align-items:center;">
           ${victory ? `<div style="font-size:32px;color:#fde047;letter-spacing:4px;">${starDisplay}</div>` : ''}
           <div style="font-size:18px;">Waves Cleared: <strong>${wavesCleared}</strong></div>
+          <div style="font-size:14px;color:${victory ? '#86efac' : '#cbd5e1'};">
+            ${victory ? '🌻 Your Gardener celebrates by the plaza fountain!' : '🪴 The Gardener regroups to plan the next defense.'}
+          </div>
           ${
             victory
               ? `<div style="font-size:20px;color:#fbbf24;font-weight:800;">+${seedsEarned} Seeds Earned! ${modBonusPct > 0 ? `(+${modBonusPct}% Mods)` : ''}</div>`
@@ -1157,6 +942,7 @@ export class UIManager {
 
     this.endModal.querySelector('#end-lobby')!.addEventListener('click', () => {
       this.exitToLobby();
+      if (victory) EventBus.emit('hub:celebrate', undefined);
     });
   }
 
@@ -1173,5 +959,12 @@ export class UIManager {
 
   public update(dt: number): void {
     this.combatHud.updateFrame(dt);
+    if (!this.match.inMatch) {
+      const busy = this.hasOpenModal() || this.fastMenu.isOpen;
+      this.match.hubWorld.setModalPaused(busy);
+      if (!busy) {
+        this.match.hubWorld.exitStationFocus();
+      }
+    }
   }
 }

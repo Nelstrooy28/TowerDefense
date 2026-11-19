@@ -39,11 +39,13 @@ export class AbilitySystem {
     const rng = tower.getEffectiveRange();
 
     if (abilityId === 'bass_drop') {
-      this.vfx.spawnShockwave(tx, 0.08, tz, rng * 1.15, 0xe879f9, 0.65);
+      this.vfx.spawnShockwave(tx, 0.08, tz, rng * 1.15, 0xe879f9, 0.65, true);
+      this.vfx.spawnRecipe('rainbow_equalizer', tx, 0.6, tz);
       this.grass.addReaction(tx, tz, rng, 'flatten', 2.2);
       EventBus.emit('camera:trauma', { amount: 0.35 });
       EventBus.emit('camera:fov_kick', { degrees: 5, duration: 0.35 });
       EventBus.emit('audio:duck', { duration: 0.3 });
+      EventBus.emit('ui:subtitle', { speaker: 'Sonic Bloom', text: 'BASS DROP! Shockwaves flatten the lane!', duration: 2.2 });
       SynthAudio.play('sonic');
 
       let hitCount = 0;
@@ -63,13 +65,15 @@ export class AbilitySystem {
     }
 
     if (abilityId === 'overdrive_mist') {
-      this.vfx.spawnShockwave(tx, 0.08, tz, rng, 0x38bdf8, 0.65);
+      this.vfx.spawnShockwave(tx, 0.08, tz, rng, 0x38bdf8, 0.65, true);
       this.vfx.spawnRecipe('frost_shatter', tx, 0.8, tz);
+      this.vfx.spawnRecipe('water_rainbow_arc', tx, 1.0, tz);
       SynthAudio.play('ice');
       for (const ally of towers) {
         if (Math.hypot(ally.position.x - tx, ally.position.z - tz) <= rng) {
           ally.cleanseStun();
           ally.overdriveBuffTimer = Math.max(ally.overdriveBuffTimer, 10.0);
+          this.vfx.spawnRecipe('sun_ray_burst', ally.position.x, ally.position.y + 0.8, ally.position.z, 0x7dd3fc);
         }
       }
       for (const e of enemies) {
@@ -84,14 +88,16 @@ export class AbilitySystem {
 
     if (abilityId === 'tectonic_slam') {
       TimeScale.triggerHitStop('golem_smash');
-      this.vfx.spawnShockwave(tx, 0.1, tz, rng * 1.1, 0xf97316, 0.7);
+      this.vfx.spawnShockwave(tx, 0.1, tz, rng * 1.1, 0xf97316, 0.7, true);
       this.vfx.spawnRecipe('soil_placement_clods', tx, 0.6, tz);
+      this.vfx.spawnRecipe('walnut_shell_shock', tx, 0.7, tz, 0xf97316);
       this.decals.spawn('crater', tx, tz, 3.6, 14);
       this.grass.addReaction(tx, tz, rng, 'flatten', 2.8);
       EventBus.emit('camera:trauma', { amount: 0.6 });
       EventBus.emit('camera:fov_kick', { degrees: 6, duration: 0.4 });
       EventBus.emit('vfx:explosion_env', { x: tx, z: tz, radius: rng });
       EventBus.emit('audio:duck', { duration: 0.35 });
+      EventBus.emit('ui:subtitle', { speaker: 'Moss Golem', text: 'TECTONIC SLAM! Earth splits beneath the swarm!', duration: 2.4 });
       SynthAudio.play('golem');
 
       const slamDmg = tower.getEffectiveDamage() * 5;

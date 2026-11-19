@@ -3,6 +3,7 @@ import { getUnitById, type UnitDef } from '../data/UnitRegistry';
 import { TRAITS, type TraitId } from '../data/TraitConfig';
 import { ECONOMY_CONFIG, type VariantId } from '../data/BalanceConfig';
 import { SaveManager, type SoilSkinId, type TargetingModeValue } from '../core/SaveManager';
+import { QualityManager } from '../core/QualityManager';
 import { MeshFactory, type TowerRigRefs } from '../rendering/MeshFactory';
 import { TowerAnimator } from '../rendering/Animator';
 import { EventBus } from '../core/EventBus';
@@ -26,7 +27,9 @@ export class TowerEntity {
   public damagePerWave: number[] = []; // §14 mini wave chart
   public targeting: TargetingMode = 'First';
   public placedOrUpgradedWave = 0;
-  public autoUpgrade = false;
+  public autoUpgrade = Boolean(QualityManager.settings.autoUpgradeDefault);
+  public priority = 1;
+  public instanceNumber = 1;
 
   public rig: TowerRigRefs;
   public readonly anim = new TowerAnimator();
@@ -246,7 +249,7 @@ export class TowerEntity {
   }
 
   public cycleTargeting(): TargetingMode {
-    const order: TargetingMode[] = ['First', 'Strongest', 'Last', 'Closest'];
+    const order: TargetingMode[] = ['First', 'Last', 'Strongest', 'Closest', 'Weakest'];
     const idx = (order.indexOf(this.targeting) + 1) % order.length;
     this.targeting = order[idx];
     SaveManager.data.targetingMemory[this.def.id] = this.targeting;
