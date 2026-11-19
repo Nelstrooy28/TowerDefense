@@ -167,17 +167,17 @@ export class ProjectileSystem {
         slot.duration = Math.max(0.08, dist / Math.max(2, p.speed));
         slot.progress = 0;
 
-        let color = 0xef4444;
-        let scale = 1.0;
+        let color = 0x8d6e63;
+        let scale = 0.62;
         if (p.kind === 'spine') {
-          color = p.isLv5 ? 0x4ade80 : 0xfef08a;
+          color = p.isLv5 ? 0xe91e8c : 0xfafafa;
           scale = 0.65;
         } else if (p.kind === 'bamboo_arrow') {
           color = 0xbef264;
           scale = 0.8;
         } else if (p.kind === 'pineapple' || p.kind === 'mini_bomb') {
-          color = 0xfacc15;
-          scale = p.kind === 'mini_bomb' ? 0.85 : 1.5;
+          color = 0xd4ff5a;
+          scale = p.kind === 'mini_bomb' ? 0.85 : 1.45;
         } else if (p.kind === 'boulder') {
           color = 0x78716c;
           scale = 2.2;
@@ -185,17 +185,17 @@ export class ProjectileSystem {
           color = 0xf97316;
           scale = 1.4;
         } else if (p.kind === 'frost_orb') {
-          color = 0x38bdf8;
+          color = 0x9be7f5;
           scale = 1.4;
         } else if (p.kind === 'arcane_orb') {
           color = 0xa855f7;
           scale = 1.4;
         } else if (p.kind === 'spore_bomb') {
-          color = 0xa855f7;
-          scale = 1.25;
+          color = 0xfdd835;
+          scale = 1.15;
         } else if (p.kind === 'tomato' && p.isLv5) {
-          color = 0xf97316;
-          scale = 1.25;
+          color = 0xf5e9c8;
+          scale = 0.85;
         }
 
         slot.mat.color.setHex(color);
@@ -345,21 +345,21 @@ export class ProjectileSystem {
           );
         }
       }
-      this.vfx.spawnShockwave(ix, 0.05, iz, 1.8, 0xa855f7, 0.4);
+      this.vfx.spawnShockwave(ix, 0.05, iz, 1.8, 0xfdd835, 0.4);
       return;
     }
 
     if (p.kind === 'tomato') {
-      this.vfx.spawnRecipe('tomato_juicy_burst', ix, 0.4, iz, p.isLv5 ? 0xf97316 : undefined);
+      this.vfx.spawnRecipe('tomato_juicy_burst', ix, 0.4, iz, p.isLv5 ? 0xf5e9c8 : 0x4caf50);
       if (p.isLv5) {
-        this.vfx.spawnRecipe('fire_cinders', ix, 0.5, iz);
-        this.vfx.spawnShockwave(ix, 0.05, iz, 2.2, 0xf97316, 0.32);
+        this.vfx.spawnRecipe('ui_leaf_puff', ix, 0.5, iz, 0x4caf50);
+        this.vfx.spawnShockwave(ix, 0.05, iz, 2.2, 0x4caf50, 0.32);
       }
-      this.decals.spawn('tomato', ix, iz, 1.2, 4.0);
+      this.decals.spawn('vine', ix, iz, 1.2, 4.0);
     } else if (p.kind === 'pineapple' || p.kind === 'mini_bomb') {
-      this.vfx.spawnRecipe('pineapple_tropical_explosion', ix, 0.5, iz);
-      this.vfx.spawnShockwave(ix, 0.05, iz, p.splashRadius || 3.5, 0xf97316, 0.45);
-      this.decals.spawn('scorch', ix, iz, 2.0, 8.0);
+      this.vfx.spawnRecipe('pineapple_tropical_explosion', ix, 0.5, iz, 0xbbc34a);
+      this.vfx.spawnShockwave(ix, 0.05, iz, p.splashRadius || 3.5, 0x7b3fa0, 0.45);
+      this.decals.spawn('poison', ix, iz, 2.0, 8.0);
       this.grass.addReaction(ix, iz, p.splashRadius, 'flatten', 2.0);
       EventBus.emit('camera:trauma', { amount: p.kind === 'mini_bomb' ? 0.08 : 0.25 });
       EventBus.emit('vfx:explosion_env', { x: ix, z: iz, radius: p.splashRadius });
@@ -407,8 +407,8 @@ export class ProjectileSystem {
     } else if (p.kind === 'arcane_orb') {
       this.vfx.spawnShockwave(ix, 0.05, iz, p.isLv5 ? 3.2 : 2.0, 0xa855f7, 0.35);
       if (p.isLv5) this.vfx.spawnRecipe('muzzle_ring_flash', ix, 0.6, iz, 0xa78bfa);
-    } else if (p.kind === 'spine' && p.isLv5) {
-      this.vfx.spawnRecipe('muzzle_ring_flash', ix, 0.5, iz, 0x4ade80);
+    } else if (p.kind === 'spine') {
+      this.vfx.spawnRecipe('muzzle_ring_flash', ix, 0.5, iz, p.isLv5 ? 0xe91e8c : 0xfafafa);
     }
 
     const isGroundAoe = p.splashRadius > 0;

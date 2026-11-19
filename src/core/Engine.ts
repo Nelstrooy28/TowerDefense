@@ -192,6 +192,12 @@ export class Engine {
 
     this.bloomPass.enabled = preset.bloomMode !== 'off';
     this.postFx.setEnabled(preset.postFx);
+    const outlinesVisible = QualityManager.settings.tier !== 'Low';
+    this.scene.traverse((obj) => {
+      if (obj.userData.isCartoonOutline === true) {
+        obj.visible = outlinesVisible;
+      }
+    });
     this.resize();
   }
 

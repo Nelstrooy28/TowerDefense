@@ -173,7 +173,7 @@ function createDailyQuests(): DailyQuestState[] {
   return [
     {
       id: 'q_ants',
-      title: 'Defeat 300 Garden Ants',
+      title: 'Defeat 300 Scout Ants',
       type: 'kill_ant',
       target: 300,
       progress: 0,

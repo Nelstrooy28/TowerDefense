@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { EnemyTypeId } from '../../data/EnemyRegistry';
+import { applyToonRimShader } from '../ShaderLib';
 
 export type BugGait =
   | 'tripod'
@@ -55,7 +56,9 @@ export interface BugRigDef {
     size: [number, number, number];
     y?: number;
     z?: number;
-    antennae?: 'none' | 'bent' | 'feathered' | 'stalks';
+    shape?: 'box' | 'sphere' | 'triangle_cone' | 'rhino_horn';
+    eyeRadius?: number;
+    antennae?: 'none' | 'bent' | 'feathered' | 'stalks' | 'long';
     mandibles?: boolean;
     jaws?: boolean;
     moleNose?: boolean;
@@ -66,6 +69,7 @@ export interface BugRigDef {
   body: {
     segments: Array<[number, number, number]>;
     yOffset?: number;
+    style?: 'default' | 'ant_spheres' | 'aphid_hopper' | 'aphid_cluster_3' | 'snail_foot' | 'wasp_stinger' | 'mantis_upright';
     isAphidCluster?: boolean;
     treeBody?: boolean;
   };
@@ -74,13 +78,14 @@ export interface BugRigDef {
     length: number;
     spreadX?: number;
     bladeArms?: boolean;
+    style?: 'default' | 'ant_long' | 'aphid_stub' | 'rhino_thick' | 'wasp_dangle' | 'mantis_jade';
   };
   wings: {
-    kind: 'none' | 'soft' | 'wasp' | 'glow' | 'flame' | 'crystal';
+    kind: 'none' | 'soft' | 'wasp' | 'wasp_dual' | 'aphid_mini' | 'glow' | 'flame' | 'crystal';
     span?: number;
   };
   shell: {
-    kind: 'none' | 'iron_plates' | 'spiral_crystal' | 'spotted_dome' | 'magma_plates';
+    kind: 'none' | 'iron_plates' | 'rhino_dome' | 'spiral_crystal' | 'snail_terracotta' | 'spotted_dome' | 'magma_plates';
   };
   extras: BugExtraKind[];
   walk: {
@@ -114,6 +119,8 @@ export interface EnemyRigRefs {
   crownMesh?: THREE.Object3D;
   sweatGroup?: THREE.Group;
   dizzyGroup?: THREE.Group;
+  shellHalves?: [THREE.Object3D, THREE.Object3D];
+  mantisCoreMesh?: THREE.Mesh;
   gait?: BugGait;
   deathKind?: BugDeathKind;
   walkStepHz?: number;
@@ -155,6 +162,9 @@ export function makeBugMaterial(
     metalness: 0.05,
     ...extra,
   });
+  if (!extra.transparent && extra.roughness !== 0.08 && extra.roughness !== 0.12) {
+    applyToonRimShader(mat, 0x87ceeb, 0.2);
+  }
   mat.userData.baseEmissiveHex = (extra.emissive as number | undefined) ?? 0x000000;
   mat.userData.baseEmissiveInt = extra.emissiveIntensity ?? 0;
   return mat;

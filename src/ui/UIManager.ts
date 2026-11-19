@@ -854,8 +854,8 @@ export class UIManager {
       return;
     }
     const msgs = [
-      'Hi! Click card [1] Tomato Tosser below, then click the green lawn near the path to plant its roots!',
-      `Awesome! Now click your Tomato Tosser and press Upgrade ${Keybinds.badge('upgrade')} (or Shift+Click) to evolve its roots!`,
+      'Hi! Click card [1] Sprout Striker below, then click the green lawn near the path to plant it!',
+      `Awesome! Now click your Sprout Striker and press Upgrade ${Keybinds.badge('upgrade')} (or Shift+Click) to evolve its branches!`,
       `Great job! Try toggling Speed ${Keybinds.badge('speed_cycle')} or pressing Start Wave ${Keybinds.badge('start_wave')}!`,
       'Defend your Garden Bastion! Visit the Greenhouse in the Hub after the match for +100 Bonus Seeds!',
     ];

@@ -46,7 +46,9 @@ export function updateBugWalk(
     rig.headGroup.rotation.y *= 1 - Math.exp(-10 * dt);
   }
 
-  const stepHz = (rig.walkStepHz ?? 6.0) * Math.max(0.4, speed / 2.2);
+  // Faster walk tempo visually when Rhino Beetle shell cracks off
+  const lightBonus = rig.bugType === 'iron_beetle' && rig.shellMesh && !rig.shellMesh.visible ? 1.35 : 1.0;
+  const stepHz = (rig.walkStepHz ?? 6.0) * lightBonus * Math.max(0.4, speed / 2.2);
   const phase = time * stepHz * Math.PI * 2;
   const gait = rig.gait ?? 'tripod';
 
@@ -71,9 +73,10 @@ export function updateBugWalk(
     }
   }
 
-  // Wing flap (~14 Hz) + Fly bob
+  // Wing flap (~20 Hz fast wasp blur, ~14 Hz general flyers)
   if (rig.wings.length > 0) {
-    const flapAngle = Math.sin(time * 14 * Math.PI * 2) * 0.48;
+    const wingHz = rig.bugType === 'spore_wasp' ? 20 : 14;
+    const flapAngle = Math.sin(time * wingHz * Math.PI * 2) * (rig.bugType === 'spore_wasp' ? 0.56 : 0.48);
     for (let i = 0; i < rig.wings.length; i++) {
       const sign = i % 2 === 0 ? -1 : 1;
       rig.wings[i].rotation.z = flapAngle * sign;
@@ -118,8 +121,8 @@ export function updateBugWalk(
     rig.bodyGroup.position.y = Math.sin(time * 3.0) * 0.15 + 0.12;
   } else if (gait === 'hop') {
     const h = Math.abs(Math.sin(time * 6.5));
-    rig.bodyGroup.position.y = h * 0.26;
-    const stretchY = h > 0.35 ? 1.12 : 0.88;
+    rig.bodyGroup.position.y = h * 0.32;
+    const stretchY = h > 0.3 ? 1.2 : 0.8; // Art Sheet Doc 03 §2: squash 0.8 -> stretch 1.2 in air
     rig.bodyGroup.scale.set(1 / Math.sqrt(stretchY), stretchY, 1 / Math.sqrt(stretchY));
   } else {
     rig.bodyGroup.position.y = Math.abs(Math.sin(phase)) * bobAmp;

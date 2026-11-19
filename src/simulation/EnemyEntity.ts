@@ -62,6 +62,13 @@ export class EnemyEntity {
   public isBurrowed = false;
   private burrowCycleTimer = 0;
   public waspBombTimer = 4.5;
+  public waspDivePhase: 'idle' | 'telegraph' | 'diving' | 'returning' = 'idle';
+  public waspDiveTimer = 0;
+  public waspTargetX = 0;
+  public waspTargetZ = 0;
+  public waspVictimTowerId: string | null = null;
+  public mantisSpawnTimer = 8.0;
+  public mantisTelegraphTimer = 0;
   public snailShattered = false;
   public isCocooned = false;
   public cocoonHatchTimer = 0;
@@ -170,7 +177,10 @@ export class EnemyEntity {
     this.eliteTagEl = this.hpEl.querySelector('.elite-badge') as HTMLSpanElement;
 
     if (isMiniBoss) {
-      this.eliteTagEl.textContent = `👑 ${this.def.name.split(' ')[1]?.toUpperCase() ?? 'BUG'} KING`;
+      this.eliteTagEl.textContent =
+        this.type === 'sprinter_mantis'
+          ? '👑 BROOD MANTIS QUEEN'
+          : `👑 ${this.def.name.toUpperCase()}`;
       this.eliteTagEl.style.color = '#fde047';
     } else if (isElite && eliteMod) {
       this.eliteTagEl.textContent = eliteMod.toUpperCase();
@@ -475,6 +485,21 @@ export class EnemyEntity {
     const t = THREE.MathUtils.clamp(this.progress, 0, 1);
     this.spline.getPointAt(t, this.position);
     this.spline.getTangentAt(t, this._tangent);
+    if (this.type === 'spore_wasp') {
+      let yHover = 2.2;
+      if (this.waspDivePhase === 'diving') {
+        const diveP = THREE.MathUtils.clamp(1 - this.waspDiveTimer / 0.28, 0, 1);
+        this.position.x = THREE.MathUtils.lerp(this.position.x, this.waspTargetX, diveP);
+        this.position.z = THREE.MathUtils.lerp(this.position.z, this.waspTargetZ, diveP);
+        yHover = THREE.MathUtils.lerp(2.2, 1.05, diveP);
+      } else if (this.waspDivePhase === 'returning') {
+        const upP = THREE.MathUtils.clamp(1 - this.waspDiveTimer / 0.35, 0, 1);
+        this.position.x = THREE.MathUtils.lerp(this.waspTargetX, this.position.x, upP);
+        this.position.z = THREE.MathUtils.lerp(this.waspTargetZ, this.position.z, upP);
+        yHover = THREE.MathUtils.lerp(1.05, 2.2, upP);
+      }
+      this.position.y = yHover;
+    }
     this.rig.root.position.copy(this.position);
 
     const desiredYaw = Math.atan2(this._tangent.x, this._tangent.z);

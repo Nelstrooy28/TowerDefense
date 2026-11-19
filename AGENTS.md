@@ -23,7 +23,7 @@
 7. Every new VFX goes through `VFXRecipes.ts` and must respect `QualityManager` tiers and Reduced Motion.
 8. Every player action needs feedback on at least two channels (visual + audio or motion).
 9. Use `Easing.ts` for all tweens. No hand-written one-off easing.
-10. Plants grow from soil mounds with roots. Never add flowerpots back. Level and rarity are shown through roots, mound and ground details.
+10. Plants grow from soil mounds with roots, EXCEPT where the v6 art sheet shows another base (Sprout Striker: terracotta pot; Cryo Water-Lily: lily pad on water disc; Ironwood Stump: its own roots). The art sheet wins.
 11. Root geometry comes from the 6 shared root shapes built at startup. Never build a new `TubeGeometry` per tower.
 12. Every enemy death ends with the pooled dissolve material.
 13. Every boss attack needs a telegraph of at least 1.2 s.
@@ -38,6 +38,8 @@
 22. Every key action goes through `src/core/Keybinds.ts`. Never read `e.code` directly in game or UI code.
 23. Every new VFX has a Low/Medium/High version in `VFXRecipes.ts`.
 24. Every button shows its key hint (e.g. `Upgrade [E]`) when a keyboard is in use.
+25. Models listed in ideadoc/v6 must match the art sheet colors (hex in 02_Tower_Models.md / 03_Enemy_Models.md) and silhouettes.
+26. The art sheet image is a reference only. The game never loads it. All models stay procedural (rule 1).
 
 ## Adding New Units or Enemies
 1. Register stats, costs, caps, abilities in `src/data/UnitRegistry.ts` or `EnemyRegistry.ts`.

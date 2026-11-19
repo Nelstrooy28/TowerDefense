@@ -10,10 +10,12 @@ import { PropKit } from './props/PropKit';
 import { BugRigKit, type EnemyRigRefs } from './bugs/BugRigKit';
 import {
   applyToonRimShader,
+  attachCartoonOutline,
   createCelestialTraitShaderMaterial,
   createRuneRingMaterial,
   createWaterShaderMaterial,
 } from './ShaderLib';
+import { ProceduralTextures } from './ProceduralTextures';
 import type { EliteModifierId } from '../data/ModifierConfig';
 
 export type { EnemyRigRefs };
@@ -76,6 +78,96 @@ const GEO = {
   plane: new THREE.PlaneGeometry(1, 1),
 };
 
+// Prebuilt shared custom geometries for v6 Art-Sheet towers (Rule 11 / zero per-tower alloc)
+const V6_SPROUT_STEM_GEO = new THREE.TubeGeometry(
+  new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(-0.14, 0.28, -0.05),
+    new THREE.Vector3(0.14, 0.6, 0.06),
+    new THREE.Vector3(0, 0.88, 0.04),
+  ]),
+  14,
+  0.07,
+  8,
+  false
+);
+
+const V6_MARIGOLD_STEM_GEO = new THREE.TubeGeometry(
+  new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0.06, 0.32, 0.03),
+    new THREE.Vector3(-0.04, 0.66, 0.06),
+    new THREE.Vector3(0, 0.88, 0.08),
+  ]),
+  12,
+  0.06,
+  8,
+  false
+);
+
+const V6_PITCHER_TENDRIL_GEO = new THREE.TubeGeometry(
+  new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.32, 0.1, 0),
+    new THREE.Vector3(0.54, 0.12, 0.34),
+    new THREE.Vector3(0.18, 0.1, 0.62),
+    new THREE.Vector3(-0.34, 0.12, 0.45),
+    new THREE.Vector3(-0.52, 0.15, -0.1),
+  ]),
+  18,
+  0.04,
+  7,
+  false
+);
+
+const V6_PITCHER_BELLY_GEO = new THREE.LatheGeometry(
+  [
+    new THREE.Vector2(0.01, -0.35),
+    new THREE.Vector2(0.36, -0.32),
+    new THREE.Vector2(0.46, -0.1),
+    new THREE.Vector2(0.41, 0.16),
+    new THREE.Vector2(0.21, 0.35),
+  ],
+  16
+);
+
+const V6_CACTUS_BARREL_GEO = (() => {
+  const g = new THREE.SphereGeometry(0.42, 20, 14);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const ang = Math.atan2(z, x);
+    const rib = 1 + 0.085 * Math.cos(ang * 10);
+    pos.setXYZ(i, x * rib, y * 0.92, z * rib);
+  }
+  g.computeVertexNormals();
+  return g;
+})();
+
+const V6_STUMP_TRUNK_GEO = (() => {
+  const g = new THREE.CylinderGeometry(0.58, 0.74, 0.7, 16, 4);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const ang = Math.atan2(z, x);
+    const flare = y < -0.15 ? 1.12 : 1.0;
+    const ridge = 1 + 0.075 * Math.sin(ang * 9 + y * 2.1);
+    pos.setXYZ(i, x * ridge * flare, y, z * ridge * flare);
+  }
+  g.computeVertexNormals();
+  return g;
+})();
+
+const V6_LILY_PAD_GEO = new THREE.CylinderGeometry(0.55, 0.55, 0.04, 22, 1, false, 0.25, Math.PI * 1.88);
+const V6_POT_GEO = new THREE.CylinderGeometry(0.42, 0.32, 0.5, 16);
+const V6_POT_SOIL_GEO = new THREE.CylinderGeometry(0.38, 0.36, 0.04, 16);
+const V6_POT_RIM_GEO = new THREE.TorusGeometry(0.42, 0.06, 8, 20);
+const V6_TRUMPET_HEAD_GEO = new THREE.ConeGeometry(0.22, 0.38, 14, 1, true);
+const V6_TRUMPET_MOUTH_GEO = new THREE.TorusGeometry(0.22, 0.05, 8, 16);
+
 /**
  * Rule 11 (§3.3): 6 shared tapered TubeGeometry root shapes built once at startup.
  */
@@ -101,6 +193,9 @@ function makeMat(
     transparent?: boolean;
     opacity?: number;
     rim?: boolean;
+    map?: THREE.Texture | null;
+    emissiveMap?: THREE.Texture | null;
+    side?: THREE.Side;
   } = {}
 ): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({
@@ -111,6 +206,9 @@ function makeMat(
     emissiveIntensity: options.emissiveIntensity ?? 0,
     transparent: options.transparent ?? false,
     opacity: options.opacity ?? 1,
+    map: options.map ?? null,
+    emissiveMap: options.emissiveMap ?? null,
+    side: options.side ?? THREE.FrontSide,
   });
   if (options.rim !== false) {
     applyToonRimShader(mat);
@@ -211,67 +309,150 @@ class MeshFactoryImpl {
       rootEmissiveInt = Math.max(rootEmissiveInt, 0.85);
     }
 
-    const moundMat = makeMat(moundColor, { roughness: 0.95, metalness: 0.0 });
-    const moundRadius = 0.45 * (1 + level * 0.12);
-    const mound = new THREE.Mesh(GEO.lowSphere, moundMat);
-    mound.scale.set(moundRadius * 2.1, 0.28 + level * 0.02, moundRadius * 2.1);
-    mound.position.y = 0.06;
-    mound.receiveShadow = true;
-    mound.castShadow = true;
-    basePot.add(mound);
+    const isSproutV6 = unitId === 'tomato_tosser';
+    const isCactusV6 = unitId === 'cactus_striker';
+    const isPitcherV6 = unitId === 'pineapple_cannon';
+    const isMarigoldV6 = unitId === 'money_tree';
+    const isLilyV6 = unitId === 'ice_buds';
+    const isStumpV6 = unitId === 'walnut_wall';
+    const isCustomV6StemOrBase =
+      isSproutV6 || isCactusV6 || isPitcherV6 || isMarigoldV6 || isLilyV6 || isStumpV6;
 
-    // Radiating Roots using SHARED_ROOT_GEOS (Lv.0: 3, Lv.1: 4, Lv.2+: 5-6)
-    const rootCount = level === 0 ? 3 : level === 1 ? 4 : level >= 4 ? 6 : 5;
-    for (let i = 0; i < rootCount; i++) {
-      const rMat = makeMat(rootColor, {
-        metalness: rootMetal,
-        roughness: rootRough,
-        emissive: rootEmissive,
-        emissiveIntensity: rootEmissiveInt,
-      });
-      rMat.userData.baseEmissiveInt = rootEmissiveInt;
-      rootMats.push(rMat);
-      if (rootEmissiveInt > 0) emissiveParts.push(rMat);
+    if (isSproutV6) {
+      // Art Sheet Rule 10 exception: Terracotta pot base for Sprout Striker
+      const potHex = isGoldenTrait ? 0xfbbf24 : 0xc8643b;
+      const rimHex = level >= 5 ? 0xffb300 : isGoldenTrait ? 0xf59e0b : 0x9e4625;
+      const pot = new THREE.Mesh(V6_POT_GEO, makeMat(potHex, { roughness: 0.72 }));
+      pot.position.y = 0.25;
+      pot.castShadow = true;
+      pot.receiveShadow = true;
+      attachCartoonOutline(pot, potHex, 0.025);
 
-      const rMesh = new THREE.Mesh(SHARED_ROOT_GEOS[i % SHARED_ROOT_GEOS.length], rMat);
-      const ang = (i / rootCount) * Math.PI * 2 + 0.15;
-      rMesh.rotation.y = ang;
-      const rScale = 0.78 + level * 0.1;
-      rMesh.scale.set(rScale, 0.85 + level * 0.06, rScale);
-      rMesh.castShadow = true;
-      rMesh.receiveShadow = true;
-      basePot.add(rMesh);
-      roots.push(rMesh);
-    }
+      const rim = new THREE.Mesh(
+        V6_POT_RIM_GEO,
+        makeMat(rimHex, {
+          roughness: level >= 5 ? 0.3 : 0.65,
+          metalness: level >= 5 ? 0.6 : 0.05,
+        })
+      );
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = 0.5;
+      attachCartoonOutline(rim, rimHex, 0.02);
 
-    // Level 1+: pebbles, stones, moss, mushrooms, flowers, Lv.5 grass rune circle (§3.1)
-    if (level >= 1 || soilSkin !== 'garden_loam') {
-      const stoneCount = level >= 2 ? 5 : 3;
-      const stoneCol =
-        soilSkin === 'crystal_bed'
-          ? 0x67e8f9
-          : soilSkin === 'lava_rock'
-            ? 0xf97316
-            : level >= 2
-              ? 0x4d7c0f
-              : 0x78716c;
-      const stoneMat = makeMat(stoneCol, {
-        roughness: soilSkin === 'crystal_bed' ? 0.15 : 0.78,
-        emissive: soilSkin === 'lava_rock' || level >= 3 ? stoneCol : 0x000000,
-        emissiveIntensity: level >= 4 ? 0.9 : level === 3 ? 0.5 : 0.25,
-      });
+      const potSoil = new THREE.Mesh(V6_POT_SOIL_GEO, makeMat(0x5b3a22, { roughness: 0.95 }));
+      potSoil.position.y = 0.49;
+      potSoil.receiveShadow = true;
+      basePot.add(pot, rim, potSoil);
+    } else if (isLilyV6) {
+      // Art Sheet Rule 10 exception: pond water disc + Mint notched lily pad
+      const waterGeo = new THREE.CircleGeometry(0.65, 24);
+      waterGeo.rotateX(-Math.PI / 2);
+      const waterMat = createWaterShaderMaterial(0x0284c7, 0x38bdf8);
+      waterMat.uniforms.uRippleAge.value = 10;
+      const waterDisc = new THREE.Mesh(waterGeo, waterMat);
+      waterDisc.position.y = 0.03;
 
-      for (let i = 0; i < stoneCount; i++) {
-        const a = (i / stoneCount) * Math.PI * 2 + 0.5;
-        const pebble = new THREE.Mesh(
-          soilSkin === 'crystal_bed' ? GEO.octahedron : GEO.lowSphere,
-          stoneMat
-        );
-        pebble.scale.set(0.18, 0.13, 0.16);
-        pebble.position.set(Math.cos(a) * 0.44, 0.08, Math.sin(a) * 0.44);
-        pebble.castShadow = true;
-        basePot.add(pebble);
-        groundDetails.push(pebble);
+      const padMat = makeMat(0x5ec9a8, { roughness: 0.52 });
+      const pad = new THREE.Mesh(V6_LILY_PAD_GEO, padMat);
+      pad.position.y = 0.06;
+      pad.receiveShadow = true;
+      attachCartoonOutline(pad, 0x5ec9a8, 0.025);
+      basePot.add(waterDisc, pad);
+    } else if (isStumpV6) {
+      // Art Sheet Rule 10 exception: Ironwood Stump's own spreading roots
+      const rootHex = 0x5a3a22;
+      const stumpRootMat = makeMat(rootHex, { roughness: 0.85 });
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + 0.4;
+        const rootCone = new THREE.Mesh(GEO.cone, stumpRootMat);
+        rootCone.scale.set(0.32, 0.48, 0.32);
+        rootCone.position.set(Math.cos(a) * 0.68, 0.16, Math.sin(a) * 0.68);
+        rootCone.rotation.z = -Math.cos(a) * 0.88;
+        rootCone.rotation.x = Math.sin(a) * 0.88;
+        rootCone.castShadow = true;
+        attachCartoonOutline(rootCone, rootHex, 0.025);
+        basePot.add(rootCone);
+        roots.push(rootCone);
+        rootMats.push(stumpRootMat);
+      }
+    } else {
+      const moundMat = makeMat(moundColor, { roughness: 0.95, metalness: 0.0 });
+      const moundRadius = 0.45 * (1 + level * 0.12);
+      const mound = new THREE.Mesh(GEO.lowSphere, moundMat);
+      mound.scale.set(moundRadius * 2.1, 0.28 + level * 0.02, moundRadius * 2.1);
+      mound.position.y = 0.06;
+      mound.receiveShadow = true;
+      mound.castShadow = true;
+      basePot.add(mound);
+
+      if (isPitcherV6) {
+        const tendril = new THREE.Mesh(V6_PITCHER_TENDRIL_GEO, makeMat(0x558b2f, { roughness: 0.6 }));
+        tendril.castShadow = true;
+        basePot.add(tendril);
+      }
+
+      // Radiating Roots using SHARED_ROOT_GEOS (Lv.0: 3, Lv.1: 4, Lv.2+: 5-6)
+      const rootCount = level === 0 ? 3 : level === 1 ? 4 : level >= 4 ? 6 : 5;
+      for (let i = 0; i < rootCount; i++) {
+        const rMat = makeMat(rootColor, {
+          metalness: rootMetal,
+          roughness: rootRough,
+          emissive: rootEmissive,
+          emissiveIntensity: rootEmissiveInt,
+        });
+        rMat.userData.baseEmissiveInt = rootEmissiveInt;
+        rootMats.push(rMat);
+        if (rootEmissiveInt > 0) emissiveParts.push(rMat);
+
+        const rMesh = new THREE.Mesh(SHARED_ROOT_GEOS[i % SHARED_ROOT_GEOS.length], rMat);
+        const ang = (i / rootCount) * Math.PI * 2 + 0.15;
+        rMesh.rotation.y = ang;
+        const rScale = 0.78 + level * 0.1;
+        rMesh.scale.set(rScale, 0.85 + level * 0.06, rScale);
+        rMesh.castShadow = true;
+        rMesh.receiveShadow = true;
+        basePot.add(rMesh);
+        roots.push(rMesh);
+      }
+
+      // Level 1+ or Cactus 2-pebble detail
+      if (isCactusV6) {
+        const pebMat = makeMat(0x78716c, { roughness: 0.85 });
+        for (const [px, pz] of [[-0.45, 0.32], [0.44, -0.25]]) {
+          const pebble = new THREE.Mesh(GEO.lowSphere, pebMat);
+          pebble.scale.set(0.22, 0.14, 0.2);
+          pebble.position.set(px, 0.08, pz);
+          basePot.add(pebble);
+          groundDetails.push(pebble);
+        }
+      } else if (level >= 1 || soilSkin !== 'garden_loam') {
+        const stoneCount = level >= 2 ? 5 : 3;
+        const stoneCol =
+          soilSkin === 'crystal_bed'
+            ? 0x67e8f9
+            : soilSkin === 'lava_rock'
+              ? 0xf97316
+              : level >= 2
+                ? 0x4d7c0f
+                : 0x78716c;
+        const stoneMat = makeMat(stoneCol, {
+          roughness: soilSkin === 'crystal_bed' ? 0.15 : 0.78,
+          emissive: soilSkin === 'lava_rock' || level >= 3 ? stoneCol : 0x000000,
+          emissiveIntensity: level >= 4 ? 0.9 : level === 3 ? 0.5 : 0.25,
+        });
+
+        for (let i = 0; i < stoneCount; i++) {
+          const a = (i / stoneCount) * Math.PI * 2 + 0.5;
+          const pebble = new THREE.Mesh(
+            soilSkin === 'crystal_bed' ? GEO.octahedron : GEO.lowSphere,
+            stoneMat
+          );
+          pebble.scale.set(0.18, 0.13, 0.16);
+          pebble.position.set(Math.cos(a) * 0.44, 0.08, Math.sin(a) * 0.44);
+          pebble.castShadow = true;
+          basePot.add(pebble);
+          groundDetails.push(pebble);
+        }
       }
     }
 
@@ -319,22 +500,24 @@ class MeshFactoryImpl {
       auraPlane.add(lv5RuneMesh);
     }
 
-    // Basal ground foliage collar
-    const basalLeaves = 4 + Math.min(4, level);
-    const groundLeafMat = makeMat(isGoldenTrait ? 0xfde047 : 0x22c55e, {
-      metalness: isGoldenTrait ? 0.75 : 0.05,
-      roughness: 0.65,
-    });
-    for (let i = 0; i < basalLeaves; i++) {
-      const a = (i / basalLeaves) * Math.PI * 2 + 0.55;
-      const gLeaf = new THREE.Mesh(GEO.sphere, groundLeafMat);
-      gLeaf.scale.set(0.36, 0.07, 0.18);
-      gLeaf.position.set(Math.cos(a) * 0.38, 0.13, Math.sin(a) * 0.38);
-      gLeaf.rotation.y = -a;
-      gLeaf.rotation.z = 0.22;
-      gLeaf.castShadow = true;
-      basePot.add(gLeaf);
-      groundDetails.push(gLeaf);
+    // Basal ground foliage collar (omitted for Rule-10 custom pot/lily/stump bases)
+    if (!isSproutV6 && !isLilyV6 && !isStumpV6) {
+      const basalLeaves = 4 + Math.min(4, level);
+      const groundLeafMat = makeMat(isGoldenTrait ? 0xfde047 : 0x22c55e, {
+        metalness: isGoldenTrait ? 0.75 : 0.05,
+        roughness: 0.65,
+      });
+      for (let i = 0; i < basalLeaves; i++) {
+        const a = (i / basalLeaves) * Math.PI * 2 + 0.55;
+        const gLeaf = new THREE.Mesh(GEO.sphere, groundLeafMat);
+        gLeaf.scale.set(0.36, 0.07, 0.18);
+        gLeaf.position.set(Math.cos(a) * 0.38, 0.13, Math.sin(a) * 0.38);
+        gLeaf.rotation.y = -a;
+        gLeaf.rotation.z = 0.22;
+        gLeaf.castShadow = true;
+        basePot.add(gLeaf);
+        groundDetails.push(gLeaf);
+      }
     }
 
     // Glowing Seed for Placement §4.1 animation (hidden once planted)
@@ -346,40 +529,104 @@ class MeshFactoryImpl {
     fallingSeed.visible = false;
     root.add(fallingSeed);
 
-    // 2. Stem & Leaves (grows +10% taller at Lv.1+)
-    const stemHeight = 0.54 + level * 0.09;
-    stemPivot.position.set(0, 0.14, 0);
+    // 2. Stem & Leaves (custom curved/low bases for v6 sheet towers, standard cylinder+leaves for others)
+    let stemHeight = 0.54 + level * 0.09;
+    const stemGrow = level >= 1 ? 1 + Math.min(2, level) * 0.03 + Math.max(0, level - 2) * 0.02 : 1.0;
 
-    const stemMat = makeMat(isGoldenTrait ? 0xfbbf24 : 0x16a34a, {
-      metalness: isGoldenTrait ? 0.8 : 0.1,
-      roughness: isGoldenTrait ? 0.25 : 0.6,
-    });
-    const leafMat = makeMat(isGoldenTrait ? 0xfde047 : 0x4ade80, {
-      metalness: isGoldenTrait ? 0.8 : 0.05,
-    });
-
-    const stemMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.12, 0.18, stemHeight, 8),
-      stemMat
+    const stemMat = makeMat(
+      isGoldenTrait ? 0xfbbf24 : isSproutV6 ? 0x4caf50 : isMarigoldV6 ? 0x558b2f : 0x16a34a,
+      {
+        metalness: isGoldenTrait ? 0.8 : 0.08,
+        roughness: isGoldenTrait ? 0.25 : 0.58,
+      }
     );
-    stemMesh.position.y = stemHeight * 0.5;
-    stemMesh.castShadow = true;
-    stemPivot.add(stemMesh);
+    const leafMat = makeMat(
+      isGoldenTrait ? 0xfde047 : isSproutV6 ? 0x4caf50 : isMarigoldV6 ? 0x558b2f : 0x4ade80,
+      {
+        metalness: isGoldenTrait ? 0.8 : 0.05,
+      }
+    );
 
-    const leafCount = 2 + Math.min(4, level);
-    for (let i = 0; i < leafCount; i++) {
-      const leaf = new THREE.Mesh(GEO.sphere, leafMat);
-      leaf.scale.set(0.36, 0.08, 0.18);
-      const ang = (i / leafCount) * Math.PI * 2 + 0.4;
-      leaf.position.set(Math.cos(ang) * 0.22, 0.18 + (i % 2) * 0.14, Math.sin(ang) * 0.22);
-      leaf.rotation.y = -ang;
-      leaf.rotation.z = 0.35;
-      leaf.castShadow = true;
-      stemPivot.add(leaf);
+    if (isSproutV6) {
+      stemPivot.position.set(0, 0.48, 0);
+      const sCurveStem = new THREE.Mesh(V6_SPROUT_STEM_GEO, stemMat);
+      sCurveStem.castShadow = true;
+      attachCartoonOutline(sCurveStem, 0x4caf50, 0.018);
+      stemPivot.add(sCurveStem);
+
+      const thornMat = makeMat(0x2e7d32, { roughness: 0.65 });
+      for (let i = 0; i < 3; i++) {
+        const thorn = new THREE.Mesh(GEO.cone, thornMat);
+        thorn.scale.set(0.08, 0.14, 0.08);
+        const side = i % 2 === 0 ? -1 : 1;
+        thorn.position.set(side * 0.09, 0.24 + i * 0.2, 0);
+        thorn.rotation.z = -side * 1.1;
+        stemPivot.add(thorn);
+      }
+      for (const sx of [-1, 1]) {
+        const leaf = new THREE.Mesh(GEO.sphere, leafMat);
+        leaf.scale.set(0.25, 0.05, 0.12);
+        leaf.position.set(sx * 0.2, sx < 0 ? 0.34 : 0.56, 0.02);
+        leaf.rotation.z = sx * 0.35;
+        attachCartoonOutline(leaf, 0x4caf50, 0.02);
+        stemPivot.add(leaf);
+      }
+      stemHeight = 1.24;
+      headTurret.position.set(0, 0.88, 0.04);
+      headTurret.userData.baseY = 0.88;
+    } else if (isMarigoldV6) {
+      stemPivot.position.set(0, 0.14, 0);
+      const curvedStem = new THREE.Mesh(V6_MARIGOLD_STEM_GEO, stemMat);
+      curvedStem.castShadow = true;
+      attachCartoonOutline(curvedStem, 0x558b2f, 0.016);
+      stemPivot.add(curvedStem);
+      for (const sx of [-1, 1]) {
+        const leaf = new THREE.Mesh(GEO.cone, leafMat);
+        leaf.scale.set(0.16, 0.32, 0.08);
+        leaf.position.set(sx * 0.16, 0.32 + (sx > 0 ? 0.14 : 0), 0.04);
+        leaf.rotation.z = -sx * 1.05;
+        attachCartoonOutline(leaf, 0x558b2f, 0.02);
+        stemPivot.add(leaf);
+      }
+      stemHeight = 0.92;
+      headTurret.position.set(0, 0.92, 0.08);
+      headTurret.userData.baseY = 0.92;
+    } else if (isCactusV6 || isPitcherV6 || isLilyV6 || isStumpV6) {
+      stemPivot.position.set(0, 0, 0);
+      const yBase = isCactusV6 ? 0.42 : isPitcherV6 ? 0.38 : isLilyV6 ? 0.1 : 0.36;
+      stemHeight = isCactusV6 ? 0.65 : isPitcherV6 ? 0.72 : isLilyV6 ? 0.35 : 0.65;
+      headTurret.position.set(0, yBase, 0);
+      headTurret.userData.baseY = yBase;
+    } else {
+      stemPivot.position.set(0, 0.14, 0);
+      const stemMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.12, 0.18, stemHeight, 8),
+        stemMat
+      );
+      stemMesh.position.y = stemHeight * 0.5;
+      stemMesh.castShadow = true;
+      attachCartoonOutline(stemMesh, 0x16a34a, 0.02);
+      stemPivot.add(stemMesh);
+
+      const leafCount = 2 + Math.min(4, level);
+      for (let i = 0; i < leafCount; i++) {
+        const leaf = new THREE.Mesh(GEO.sphere, leafMat);
+        leaf.scale.set(0.36, 0.08, 0.18);
+        const ang = (i / leafCount) * Math.PI * 2 + 0.4;
+        leaf.position.set(Math.cos(ang) * 0.22, 0.18 + (i % 2) * 0.14, Math.sin(ang) * 0.22);
+        leaf.rotation.y = -ang;
+        leaf.rotation.z = 0.35;
+        leaf.castShadow = true;
+        stemPivot.add(leaf);
+      }
+
+      headTurret.position.set(0, stemHeight + 0.18, 0);
+      headTurret.userData.baseY = stemHeight + 0.18;
     }
 
-    headTurret.position.set(0, stemHeight + 0.18, 0);
-    headTurret.userData.baseY = stemHeight + 0.18;
+    if (isCustomV6StemOrBase && stemGrow !== 1) {
+      stemPivot.scale.setScalar(stemGrow);
+    }
 
     // 3. Unit-Specific Procedural Sculpture (with Variant Sheen overrides Doc 06 §6)
     const variantGold = variant === 'gold';
@@ -435,7 +682,9 @@ class MeshFactoryImpl {
       mainMat,
       secMat,
       veinMat,
-      orbiters
+      orbiters,
+      emissiveParts,
+      variant !== 'none' || isGoldenTrait
     );
 
     // 4. Level 5 Awakened Halo / Crown
@@ -530,98 +779,229 @@ class MeshFactoryImpl {
     mainMat: THREE.MeshStandardMaterial,
     secMat: THREE.MeshStandardMaterial,
     veinMat: THREE.MeshStandardMaterial,
-    orbiters: THREE.Object3D[]
+    orbiters: THREE.Object3D[],
+    emissiveParts: THREE.MeshStandardMaterial[],
+    hasVariantOverride = false
   ): void {
     const id = unit.id;
+    const blackEyeMat = makeMat(0x0f172a, { roughness: 0.12, rim: false });
+    const eyeShineMat = makeMat(0xffffff, { emissive: 0xffffff, emissiveIntensity: 0.5, rim: false });
 
     if (id === 'tomato_tosser') {
-      const body = new THREE.Mesh(GEO.sphere, mainMat);
-      body.scale.set(0.78, 0.72, 0.78);
-      body.castShadow = true;
-      headTurret.add(body);
-      const cap = new THREE.Mesh(GEO.cone, secMat);
-      cap.scale.set(0.45, 0.2, 0.45);
-      cap.position.y = 0.38;
-      headTurret.add(cap);
-      const eyeMat = makeMat(0xffffff, { emissive: 0xffffff, emissiveIntensity: 0.3 });
-      for (const sx of [-0.14, 0.14]) {
-        const eye = new THREE.Mesh(GEO.sphere, eyeMat);
-        eye.scale.setScalar(0.12);
-        eye.position.set(sx, 0.08, 0.34);
-        headTurret.add(eye);
-      }
-      if (level >= 3) {
-        const launcher = new THREE.Mesh(GEO.cylinder, veinMat);
-        launcher.scale.set(0.24, 0.42, 0.24);
-        launcher.rotation.x = Math.PI / 2;
-        launcher.position.set(0, 0.05, 0.32);
-        headTurret.add(launcher);
+      // Art Sheet: Sprout Striker — sideways trumpet shooter head with cream mouth
+      const mouthCol = 0xf5e9c8;
+      const mouthMat = makeMat(mouthCol, {
+        emissive: level >= 3 ? mouthCol : 0x000000,
+        emissiveIntensity: level >= 5 ? 1.25 : level >= 3 ? 0.55 : 0,
+      });
+      const hornMat = mainMat.clone();
+      hornMat.side = THREE.DoubleSide;
+      const throatMat = makeMat(0x1b5e20, { roughness: 0.9, rim: false });
+
+      const addTrumpetHead = (ox: number, oy: number, oz: number, sc: number) => {
+        const g = new THREE.Group();
+        g.position.set(ox, oy, oz);
+        g.scale.setScalar(sc);
+
+        const cone = new THREE.Mesh(V6_TRUMPET_HEAD_GEO, hornMat);
+        cone.rotation.x = -Math.PI / 2;
+        cone.castShadow = true;
+        attachCartoonOutline(cone, unit.primaryColor, 0.025);
+
+        const mouth = new THREE.Mesh(V6_TRUMPET_MOUTH_GEO, mouthMat);
+        mouth.position.z = 0.19;
+        attachCartoonOutline(mouth, mouthCol, 0.02);
+
+        const throat = new THREE.Mesh(GEO.sphere, throatMat);
+        throat.scale.set(0.26, 0.26, 0.16);
+        throat.position.z = 0.06;
+
+        for (const sx of [-0.09, 0.09]) {
+          const eye = new THREE.Mesh(GEO.sphere, blackEyeMat);
+          eye.scale.setScalar(0.085);
+          eye.position.set(sx, 0.11, -0.02);
+          const shine = new THREE.Mesh(GEO.sphere, eyeShineMat);
+          shine.scale.setScalar(0.032);
+          shine.position.set(sx + 0.014, 0.13, 0.02);
+          g.add(eye, shine);
+        }
+        g.add(cone, mouth, throat);
+        headTurret.add(g);
+      };
+
+      addTrumpetHead(0, 0.02, 0.08, level >= 1 ? 1.06 : 1.0);
+      if (level >= 5) {
+        addTrumpetHead(-0.26, 0.16, 0.02, 0.72);
+        addTrumpetHead(0.26, 0.16, 0.02, 0.72);
       }
     } else if (id === 'cactus_striker') {
-      const trunk = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.56, 6, 10), mainMat);
-      trunk.position.y = 0.22;
-      trunk.castShadow = true;
-      headTurret.add(trunk);
-      const armCount = level >= 3 ? 3 : 2;
-      for (let i = 0; i < armCount; i++) {
-        const a = (i / armCount) * Math.PI * 2;
-        const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.28, 4, 8), secMat);
-        arm.position.set(Math.cos(a) * 0.32, 0.22, Math.sin(a) * 0.32);
-        arm.rotation.z = -Math.cos(a) * 0.6;
-        arm.rotation.x = Math.sin(a) * 0.6;
-        headTurret.add(arm);
+      // Art Sheet: Needle Barrel Cactus — fat ribbed barrel + 24 white spines + magenta flower scope
+      const barrel = new THREE.Mesh(V6_CACTUS_BARREL_GEO, mainMat);
+      barrel.castShadow = true;
+      attachCartoonOutline(barrel, unit.primaryColor, 0.025);
+      headTurret.add(barrel);
+
+      // Subtle lighter vertical rib strips (#2E7D32)
+      const stripeMat = makeMat(0x2e7d32, { roughness: 0.65 });
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const rib = new THREE.Mesh(GEO.cylinder, stripeMat);
+        rib.scale.set(0.06, 0.64, 0.06);
+        rib.position.set(Math.cos(a) * 0.4, 0, Math.sin(a) * 0.4);
+        headTurret.add(rib);
       }
-      for (let i = 0; i < 8; i++) {
-        const spine = new THREE.Mesh(GEO.cone, veinMat);
-        spine.scale.set(0.06, 0.18, 0.06);
-        const a = (i / 8) * Math.PI * 2;
-        spine.position.set(Math.cos(a) * 0.26, 0.15 + (i % 3) * 0.16, Math.sin(a) * 0.26);
-        spine.rotation.z = -Math.cos(a) * 1.4;
+
+      // 24 white spines in rows (pink-glowing tips at Lv5)
+      const spineMat = makeMat(level >= 5 ? 0xf9a8d4 : 0xfafafa, {
+        emissive: level >= 5 ? 0xe91e8c : 0x000000,
+        emissiveIntensity: level >= 5 ? 1.2 : 0,
+      });
+      for (let i = 0; i < 24; i++) {
+        const ring = Math.floor(i / 8); // 3 rows of 8
+        const a = ((i % 8) / 8) * Math.PI * 2 + ring * 0.25;
+        const lat = (ring - 1) * 0.45;
+        const r = Math.cos(lat) * 0.43;
+        const y = Math.sin(lat) * 0.36;
+        const spine = new THREE.Mesh(GEO.cone, spineMat);
+        spine.scale.set(0.045, 0.14, 0.045);
+        spine.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
+        spine.lookAt(Math.cos(a) * 2, y * 2, Math.sin(a) * 2);
+        spine.rotateX(Math.PI / 2);
         headTurret.add(spine);
       }
+
+      // Magenta flower "scope" on top (inside jawUpper so Animator can squeeze it on sniper aim)
+      jawUpper.position.set(0, 0.42, 0);
+      const centerDot = new THREE.Mesh(
+        GEO.sphere,
+        makeMat(0xfde047, { emissive: 0xfacc15, emissiveIntensity: 0.85 })
+      );
+      centerDot.scale.setScalar(0.16);
+      jawUpper.add(centerDot);
+
+      const addFlowerRing = (petalCount: number, radius: number, yOff: number, petalScale: number) => {
+        for (let i = 0; i < petalCount; i++) {
+          const a = (i / petalCount) * Math.PI * 2;
+          const p = new THREE.Mesh(GEO.octahedron, secMat);
+          p.scale.set(0.14 * petalScale, 0.1 * petalScale, 0.24 * petalScale);
+          p.position.set(Math.cos(a) * radius, yOff, Math.sin(a) * radius);
+          p.rotation.y = -a + Math.PI / 2;
+          attachCartoonOutline(p, unit.secondaryColor, 0.02);
+          jawUpper.add(p);
+        }
+      };
+      addFlowerRing(8, 0.18, 0.02, 1.0);
+      if (level >= 5) {
+        addFlowerRing(8, 0.22, 0.1, 0.85);
+      }
     } else if (id === 'pineapple_cannon') {
-      const body = new THREE.Mesh(new THREE.DodecahedronGeometry(0.42, 0), mainMat);
-      body.scale.set(0.95, 1.15, 0.95);
-      body.position.y = 0.14;
-      body.castShadow = true;
-      headTurret.add(body);
-      const barrelMat = makeMat(0x1e293b, { metalness: 0.7, roughness: 0.3 });
-      const barrels = level >= 3 ? 2 : 1;
-      for (let b = 0; b < barrels; b++) {
-        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.16, 0.56, 10), barrelMat);
-        barrel.rotation.x = Math.PI / 2;
-        barrel.position.set(barrels === 2 ? (b === 0 ? -0.15 : 0.15) : 0, 0.18, 0.35);
-        barrel.castShadow = true;
-        headTurret.add(barrel);
-        const muzzleRing = new THREE.Mesh(GEO.torus, veinMat);
-        muzzleRing.scale.setScalar(0.32);
-        muzzleRing.position.set(barrel.position.x, 0.18, 0.63);
-        headTurret.add(muzzleRing);
+      // Art Sheet: Pitcher Mortar — bulbous chartreuse/violet striped belly, angled rim, hinged lid, glowing lime sap
+      const stripeTex = !hasVariantOverride ? ProceduralTextures.getPitcherStripesTexture() : null;
+      const bellyMat = stripeTex
+        ? makeMat(0xffffff, {
+            map: stripeTex,
+            emissive: level >= 4 ? 0x7b3fa0 : 0x000000,
+            emissiveIntensity: level >= 5 ? 0.85 : level >= 4 ? 0.35 : 0,
+            roughness: 0.55,
+          })
+        : mainMat;
+      const belly = new THREE.Mesh(V6_PITCHER_BELLY_GEO, bellyMat);
+      belly.castShadow = true;
+      attachCartoonOutline(belly, unit.primaryColor, 0.025);
+      headTurret.add(belly);
+
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.2, 0.25, 14), mainMat);
+      neck.position.set(0, 0.42, 0.03);
+      neck.rotation.x = 0.16;
+      neck.castShadow = true;
+      attachCartoonOutline(neck, unit.primaryColor, 0.02);
+      headTurret.add(neck);
+
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.06, 8, 18), secMat);
+      rim.rotation.x = Math.PI / 2 + 0.16;
+      rim.position.set(0, 0.54, 0.05);
+      attachCartoonOutline(rim, unit.secondaryColor, 0.022);
+      headTurret.add(rim);
+
+      const sapMat = makeMat(0xd4ff5a, {
+        emissive: 0xd4ff5a,
+        emissiveIntensity: 1.35,
+        roughness: 0.15,
+      });
+      emissiveParts.push(sapMat);
+      const sapGlow = new THREE.Mesh(GEO.cylinder, sapMat);
+      sapGlow.scale.set(0.32, 0.05, 0.32);
+      sapGlow.position.set(0, 0.52, 0.05);
+      sapGlow.rotation.x = 0.16;
+      headTurret.add(sapGlow);
+
+      // Hinged chartreuse lid in jawUpper
+      jawUpper.position.set(0, 0.57, -0.15);
+      const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.04, 14), mainMat);
+      lid.position.set(0, 0.03, 0.2);
+      lid.rotation.x = -0.35;
+      attachCartoonOutline(lid, unit.primaryColor, 0.02);
+      const lidTip = new THREE.Mesh(GEO.cone, secMat);
+      lidTip.scale.set(0.12, 0.16, 0.12);
+      lidTip.position.set(0, 0.1, 0.38);
+      lidTip.rotation.x = 0.7;
+      jawUpper.add(lid, lidTip);
+      if (level >= 5) {
+        const lid2 = lid.clone();
+        lid2.scale.set(0.75, 1, 0.75);
+        lid2.position.set(0, 0.14, 0.16);
+        jawUpper.add(lid2);
       }
-      const crown = new THREE.Mesh(GEO.cone, secMat);
-      crown.scale.set(0.5, 0.45, 0.5);
-      crown.position.y = 0.72;
-      headTurret.add(crown);
     } else if (id === 'money_tree') {
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 0.5, 8), secMat);
-      trunk.position.y = 0.1;
-      headTurret.add(trunk);
-      const puffs = level >= 3 ? 5 : 3;
-      for (let i = 0; i < puffs; i++) {
-        const puff = new THREE.Mesh(GEO.lowSphere, mainMat);
-        const a = (i / puffs) * Math.PI * 2;
-        puff.scale.setScalar(0.55);
-        puff.position.set(Math.cos(a) * 0.25, 0.46 + (i === 0 ? 0.16 : 0), Math.sin(a) * 0.25);
-        puff.castShadow = true;
-        headTurret.add(puff);
+      // Art Sheet: Solar Marigold — big tilted gold flower with glowing amber center
+      const flowerGroup = new THREE.Group();
+      flowerGroup.rotation.x = -0.35;
+      headTurret.add(flowerGroup);
+
+      const amberMat = makeMat(0xff6f00, {
+        emissive: 0xff6f00,
+        emissiveIntensity: level >= 5 ? 1.6 : 1.4,
+        roughness: 0.25,
+      });
+      emissiveParts.push(amberMat);
+      const centerOrb = new THREE.Mesh(GEO.sphere, amberMat);
+      centerOrb.scale.set(0.42, 0.42, 0.26);
+      attachCartoonOutline(centerOrb, 0xff6f00, 0.025);
+      flowerGroup.add(centerOrb);
+
+      const bumpMat = makeMat(0xb45309, { roughness: 0.7 });
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const bump = new THREE.Mesh(GEO.sphere, bumpMat);
+        bump.scale.setScalar(0.06);
+        bump.position.set(Math.cos(a) * 0.11, Math.sin(a) * 0.11, 0.12);
+        flowerGroup.add(bump);
       }
+
+      const ringCount = level >= 5 ? 3 : 2;
+      for (let r = 0; r < ringCount; r++) {
+        const count = 10;
+        const rad = 0.34 + r * 0.1;
+        const zOff = -0.03 * r;
+        for (let i = 0; i < count; i++) {
+          const a = (i / count) * Math.PI * 2 + r * 0.31;
+          const petal = new THREE.Mesh(GEO.sphere, mainMat);
+          petal.scale.set(0.16, 0.32, 0.07);
+          petal.position.set(Math.cos(a) * rad, Math.sin(a) * rad, zOff);
+          petal.rotation.z = a - Math.PI / 2;
+          petal.rotation.y = 0.18;
+          attachCartoonOutline(petal, unit.primaryColor, 0.02);
+          flowerGroup.add(petal);
+        }
+      }
+
       const coinCount = 2 + level;
       for (let i = 0; i < coinCount; i++) {
         const coin = new THREE.Mesh(GEO.cylinder, veinMat);
-        coin.scale.set(0.16, 0.04, 0.16);
+        coin.scale.set(0.14, 0.035, 0.14);
         coin.rotation.x = Math.PI / 2;
         const a = (i / coinCount) * Math.PI * 2;
-        coin.position.set(Math.cos(a) * 0.42, 0.42 + (i % 2) * 0.18, Math.sin(a) * 0.42);
+        coin.position.set(Math.cos(a) * 0.56, Math.sin(a) * 0.25, Math.sin(a) * 0.56);
         headTurret.add(coin);
         orbiters.push(coin);
       }
@@ -660,19 +1040,49 @@ class MeshFactoryImpl {
       speakerRing.position.set(0, 0.24, 0.2);
       headTurret.add(speakerRing);
     } else if (id === 'ice_buds') {
-      const shards = 3 + (level >= 3 ? 2 : 0);
-      for (let i = 0; i < shards; i++) {
-        const c = new THREE.Mesh(new THREE.OctahedronGeometry(0.24, 0), i % 2 === 0 ? mainMat : secMat);
-        c.scale.set(0.8, 1.7, 0.8);
-        const a = (i / shards) * Math.PI * 2;
-        c.position.set(Math.cos(a) * 0.2, 0.24 + (i === 0 ? 0.18 : 0), Math.sin(a) * 0.2);
-        c.rotation.z = -Math.cos(a) * 0.25;
-        c.castShadow = true;
-        headTurret.add(c);
+      // Art Sheet: Cryo Water-Lily — 2 opposite-rotating rings of 8 Ice Cyan crystal octahedrons + glowing white core
+      const petalMat = makeMat(0x9be7f5, {
+        emissive: 0x9be7f5,
+        emissiveIntensity: 1.2,
+        transparent: true,
+        opacity: 0.85,
+        roughness: 0.15,
+      });
+      emissiveParts.push(petalMat);
+
+      const addPetalRing = (ringRadius: number, yPos: number, tilt: number, spinDir: number, scaleMult: number) => {
+        const ringGrp = new THREE.Group();
+        ringGrp.position.y = yPos;
+        ringGrp.userData.spinDir = spinDir;
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          const petal = new THREE.Mesh(GEO.octahedron, petalMat);
+          petal.scale.set(0.16 * scaleMult, 0.34 * scaleMult, 0.12 * scaleMult);
+          petal.position.set(Math.cos(a) * ringRadius, 0.08, Math.sin(a) * ringRadius);
+          petal.rotation.y = -a + Math.PI / 2;
+          petal.rotation.x = tilt;
+          attachCartoonOutline(petal, 0x9be7f5, 0.02);
+          ringGrp.add(petal);
+        }
+        headTurret.add(ringGrp);
+        orbiters.push(ringGrp);
+      };
+
+      addPetalRing(0.32, 0.02, 0.72, 1, 1.0);
+      addPetalRing(0.19, 0.08, 0.4, -1, 0.85);
+      if (level >= 5) {
+        addPetalRing(0.11, 0.16, 0.22, 1, 0.72);
       }
-      const core = new THREE.Mesh(GEO.octahedron, veinMat);
-      core.scale.setScalar(0.32);
-      core.position.y = 0.36;
+
+      const coreMat = makeMat(0xffffff, {
+        emissive: 0xffffff,
+        emissiveIntensity: 1.5,
+        roughness: 0.1,
+      });
+      emissiveParts.push(coreMat);
+      const core = new THREE.Mesh(GEO.octahedron, coreMat);
+      core.scale.setScalar(0.24);
+      core.position.y = 0.18;
       headTurret.add(core);
     } else if (id === 'speed_sprinkler') {
       const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.42, 10), secMat);
@@ -844,16 +1254,55 @@ class MeshFactoryImpl {
       door.position.set(0, -0.02, 0.4);
       headTurret.add(cabin, roof, door);
     } else if (id === 'walnut_wall') {
-      const nut = new THREE.Mesh(GEO.sphere, mainMat);
-      nut.scale.set(0.92, 1.15, 0.84);
-      nut.position.y = 0.22;
-      nut.castShadow = true;
-      const seam = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.05, 6, 16), secMat);
-      seam.position.y = 0.22;
-      const brow = new THREE.Mesh(GEO.box, veinMat);
-      brow.scale.set(0.42, 0.1, 0.1);
-      brow.position.set(0, 0.36, 0.42);
-      headTurret.add(nut, seam, brow);
+      // Art Sheet: Ironwood Stump — gnarled walnut trunk + mossy top disc + glowing amber sap cracks
+      const crackTex = !hasVariantOverride ? ProceduralTextures.getStumpSapCrackTexture() : null;
+      const topTex = !hasVariantOverride ? ProceduralTextures.getStumpTopTexture() : null;
+      const trunkMat = makeMat(hasVariantOverride ? mainMat.color.getHex() : 0x5a3a22, {
+        roughness: 0.82,
+        emissive: 0xffa726,
+        emissiveMap: crackTex,
+        emissiveIntensity: crackTex ? 1.3 : level >= 3 ? 0.7 : 0.25,
+      });
+      trunkMat.userData.isStumpSapMat = true;
+      emissiveParts.push(trunkMat);
+
+      const trunk = new THREE.Mesh(V6_STUMP_TRUNK_GEO, trunkMat);
+      trunk.castShadow = true;
+      trunk.receiveShadow = true;
+      attachCartoonOutline(trunk, 0x5a3a22, 0.025);
+      headTurret.add(trunk);
+
+      const topMat = topTex
+        ? makeMat(0xffffff, { map: topTex, roughness: 0.78 })
+        : secMat;
+      const topDisc = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.56, 0.06, 16), topMat);
+      topDisc.position.y = 0.36;
+      topDisc.receiveShadow = true;
+      headTurret.add(topDisc);
+
+      const mossRimMat = makeMat(0x7ca33a, { roughness: 0.8 });
+      const mossRim = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.075, 7, 16), mossRimMat);
+      mossRim.rotation.x = Math.PI / 2;
+      mossRim.position.y = 0.36;
+      attachCartoonOutline(mossRim, 0x7ca33a, 0.02);
+      headTurret.add(mossRim);
+
+      const knot = new THREE.Mesh(GEO.torus, makeMat(0x3e2715, { roughness: 0.85 }));
+      knot.scale.setScalar(0.18);
+      knot.position.set(0.58, 0.02, 0.14);
+      knot.rotation.y = Math.PI * 0.42;
+      headTurret.add(knot);
+
+      if (level >= 5) {
+        const saplingStem = new THREE.Mesh(GEO.cylinder, makeMat(0x7ca33a));
+        saplingStem.scale.set(0.06, 0.32, 0.06);
+        saplingStem.position.set(0.18, 0.52, -0.05);
+        const saplingLeaf = new THREE.Mesh(GEO.sphere, makeMat(0x4caf50, { emissive: 0x4caf50, emissiveIntensity: 0.45 }));
+        saplingLeaf.scale.set(0.28, 0.08, 0.15);
+        saplingLeaf.position.set(0.26, 0.66, -0.05);
+        saplingLeaf.rotation.z = 0.35;
+        headTurret.add(saplingStem, saplingLeaf);
+      }
     } else if (id === 'sunflower_producer') {
       const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.12, 12), secMat);
       disc.rotation.x = Math.PI / 2;

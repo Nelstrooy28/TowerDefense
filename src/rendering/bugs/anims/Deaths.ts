@@ -18,12 +18,30 @@ export function animateBugDeathPose(
       break;
     }
     case 'tumble': {
-      rig.bodyGroup.rotation.x = poseT * Math.PI * 1.5;
-      rig.bodyGroup.position.z = poseT * 0.85;
+      // Brood Mantis: stumbles forward, core flashes & fades, Queen crown drops & spins
+      rig.bodyGroup.rotation.x = poseT * Math.PI * 0.85;
+      rig.bodyGroup.position.z = poseT * 0.65;
+      if (rig.mantisCoreMesh) {
+        const cMat = rig.mantisCoreMesh.material as { emissiveIntensity?: number };
+        if (typeof cMat.emissiveIntensity === 'number') {
+          cMat.emissiveIntensity = poseT < 0.45 ? 3.2 : Math.max(0, (1 - poseT) * 2.5);
+        }
+      }
+      if (rig.crownMesh) {
+        rig.crownMesh.position.y = Math.max(0.15, (1 - poseT) * 1.1);
+        rig.crownMesh.rotation.y += dt * 10;
+      }
       break;
     }
     case 'crack_bounce': {
-      if (rig.shellMesh) {
+      // Rhino Beetle: rolls on side, shell rocks/splits apart
+      rig.bodyGroup.rotation.z = poseT * 1.45;
+      if (rig.shellHalves) {
+        rig.shellHalves[0].position.x = -poseT * 0.65;
+        rig.shellHalves[0].rotation.z = -poseT * 0.9;
+        rig.shellHalves[1].position.x = poseT * 0.65;
+        rig.shellHalves[1].rotation.z = poseT * 0.9;
+      } else if (rig.shellMesh) {
         rig.shellMesh.position.y = 0.4 + Math.sin(poseT * Math.PI) * 1.1;
         rig.shellMesh.rotation.z = poseT * 2.4;
       }
@@ -64,7 +82,11 @@ export function animateBugDeathPose(
       break;
     }
     case 'flatten_puddle': {
-      if (rig.shellMesh) rig.shellMesh.scale.setScalar(Math.max(0.05, 1 - poseT * 1.6));
+      // Terracotta Snail: shell rolls away to the side while clay body melts into a puddle
+      if (rig.shellMesh) {
+        rig.shellMesh.position.x += dt * 1.6;
+        rig.shellMesh.rotation.z -= dt * 3.5;
+      }
       rig.bodyGroup.scale.set(1 + poseT * 0.65, Math.max(0.15, 1 - poseT * 0.85), 1 + poseT * 0.65);
       break;
     }

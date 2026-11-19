@@ -3,6 +3,7 @@ import { ENEMIES, type EnemyTypeId } from '../../data/EnemyRegistry';
 import { ELITE_MODIFIERS, type EliteModifierId } from '../../data/ModifierConfig';
 import { BUG_RIG_DEFS } from './BugRigDefs';
 import { BUG_SHARED_GEO, makeBugMaterial, type EnemyRigRefs } from './BugRigTypes';
+import { attachCartoonOutline } from '../ShaderLib';
 import { buildBugHead } from './parts/Head';
 import { buildBugBody } from './parts/Body';
 import { buildBugLegs } from './parts/Legs';
@@ -40,7 +41,8 @@ export const BugRigKit = {
     });
     bodyMaterials.push(mainMat, darkMat, accentMat);
 
-    const { segments, headZ, headY } = buildBugBody(rigDef, bodyGroup, mainMat, darkMat, accentMat, bodyMaterials);
+    const bodyRes = buildBugBody(rigDef, bodyGroup, mainMat, darkMat, accentMat, bodyMaterials);
+    const { segments, headZ, headY, mantisCoreMesh } = bodyRes;
     const headRes = buildBugHead(
       rigDef,
       mainMat,
@@ -54,7 +56,7 @@ export const BugRigKit = {
 
     const legs = buildBugLegs(rigDef, bodyGroup, darkMat, accentMat);
     const wings = buildBugWings(rigDef, bodyGroup, bodyMaterials);
-    const shellMesh = buildBugShell(rigDef, bodyGroup, bodyMaterials);
+    const shellRes = buildBugShell(rigDef, bodyGroup, bodyMaterials);
     const extras = buildBugExtras(rigDef, root, bodyGroup, mainMat, darkMat, accentMat, bodyMaterials, {
       isElite,
       eliteMod,
@@ -81,17 +83,35 @@ export const BugRigKit = {
 
     const bodyMeshes: THREE.Mesh[] = [];
     bodyGroup.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        bodyMeshes.push(child as THREE.Mesh);
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh && !mesh.userData.isCartoonOutline) {
+        bodyMeshes.push(mesh);
       }
     });
+
+    // Attach v6 cartoon outlines after collecting dissolve-eligible bodyMeshes (Doc 01 §2)
+    const outlineWidth = enemyDef.isBoss || isMiniBoss ? 0.04 : 0.025;
+    for (const seg of segments) {
+      seg.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.isMesh && !mesh.userData.isCartoonOutline) {
+          attachCartoonOutline(mesh, rigDef.palette.main, outlineWidth);
+        }
+      });
+    }
+    const primaryHeadMesh = headRes.headGroup.children.find((c) => (c as THREE.Mesh).isMesh) as THREE.Mesh | undefined;
+    if (primaryHeadMesh) {
+      attachCartoonOutline(primaryHeadMesh, rigDef.palette.main, outlineWidth);
+    }
 
     return {
       root,
       bodyGroup,
       legs,
       wings,
-      shellMesh,
+      shellMesh: shellRes.shellMesh,
+      shellHalves: shellRes.shellHalves,
+      mantisCoreMesh,
       dirtMound: extras.dirtMound,
       cocoonMesh: extras.cocoonMesh,
       hydraHeads: extras.hydraHeads,

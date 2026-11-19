@@ -98,15 +98,15 @@ export interface PuzzleStageDef {
 }
 
 export const GARDEN_PUZZLES: PuzzleStageDef[] = [
-  { id: 1, title: 'Steam Kitchen', hint: 'Combine Ghost Pepper (Burn) + Ice Buds (Chill) for Steam Burst!', mapId: 'sunny_backyard', startingCash: 1650, allowedUnits: ['ghost_pepper', 'ice_buds'], waveNumber: 8 },
-  { id: 2, title: 'Cauterize Wounds', hint: 'Use Cactus Striker (Bleed) + Ghost Pepper (Burn) to burst beetles!', mapId: 'sunny_backyard', startingCash: 1300, allowedUnits: ['cactus_striker', 'ghost_pepper'], waveNumber: 10 },
-  { id: 3, title: 'Slippery Slope', hint: 'Pair Ice Buds + Sonic Bloom for Ice Skate ×2 knockback!', mapId: 'enchanted_jungle', startingCash: 1850, allowedUnits: ['ice_buds', 'sonic_bloom'], waveNumber: 12 },
-  { id: 4, title: 'Shatter Strike', hint: 'Freeze with Ice Buds, then smash with Pineapple Cannon!', mapId: 'sunny_backyard', startingCash: 1450, allowedUnits: ['ice_buds', 'pineapple_cannon'], waveNumber: 11 },
+  { id: 1, title: 'Steam Kitchen', hint: 'Combine Ghost Pepper (Burn) + Cryo Water-Lily (Chill) for Steam Burst!', mapId: 'sunny_backyard', startingCash: 1650, allowedUnits: ['ghost_pepper', 'ice_buds'], waveNumber: 8 },
+  { id: 2, title: 'Cauterize Wounds', hint: 'Use Needle Barrel Cactus (Bleed) + Ghost Pepper (Burn) to burst beetles!', mapId: 'sunny_backyard', startingCash: 1300, allowedUnits: ['cactus_striker', 'ghost_pepper'], waveNumber: 10 },
+  { id: 3, title: 'Slippery Slope', hint: 'Pair Cryo Water-Lily + Sonic Bloom for Ice Skate ×2 knockback!', mapId: 'enchanted_jungle', startingCash: 1850, allowedUnits: ['ice_buds', 'sonic_bloom'], waveNumber: 12 },
+  { id: 4, title: 'Shatter Strike', hint: 'Freeze with Cryo Water-Lily, then smash with Pitcher Mortar!', mapId: 'sunny_backyard', startingCash: 1450, allowedUnits: ['ice_buds', 'pineapple_cannon'], waveNumber: 11 },
   { id: 5, title: 'Wet Circuit', hint: 'Wet pests with Speed Sprinkler, then zap with Laser Plant!', mapId: 'enchanted_jungle', startingCash: 2700, allowedUnits: ['speed_sprinkler', 'laser_plant'], waveNumber: 14 },
   { id: 6, title: 'Toxic Blaze', hint: 'Drop Puffball Mushroom poison + Ghost Pepper fire for Toxic Blaze!', mapId: 'volcano_greenhouse', startingCash: 1500, allowedUnits: ['puffball_mushroom', 'ghost_pepper'], waveNumber: 13 },
   { id: 7, title: 'Plague Mist', hint: 'Wet + Poison spreads spores across tight swarms!', mapId: 'enchanted_jungle', startingCash: 1800, allowedUnits: ['puffball_mushroom', 'speed_sprinkler'], waveNumber: 15 },
-  { id: 8, title: 'Mole Hunt', hint: 'Burrowers hide from bullets — use Puffball Mushroom or Pineapple Cannon!', mapId: 'sunny_backyard', startingCash: 1600, allowedUnits: ['puffball_mushroom', 'pineapple_cannon'], waveNumber: 12 },
-  { id: 9, title: 'Cliff Snipers', hint: 'Place Bamboo Archer on cliffs to pierce flying wasps!', mapId: 'enchanted_jungle', startingCash: 1400, allowedUnits: ['bamboo_archer', 'tomato_tosser'], waveNumber: 16 },
+  { id: 8, title: 'Mole Hunt', hint: 'Burrowers hide from bullets — use Puffball Mushroom or Pitcher Mortar!', mapId: 'sunny_backyard', startingCash: 1600, allowedUnits: ['puffball_mushroom', 'pineapple_cannon'], waveNumber: 12 },
+  { id: 9, title: 'Cliff Snipers', hint: 'Place Bamboo Archer on cliffs to pierce Stinger Wasps!', mapId: 'enchanted_jungle', startingCash: 1400, allowedUnits: ['bamboo_archer', 'tomato_tosser'], waveNumber: 16 },
   { id: 10, title: 'Solar Overcharge', hint: 'Link Sunflower Solar Beacon with Laser Plant for massive crits!', mapId: 'frosty_allotment', startingCash: 3200, allowedUnits: ['sunflower_beacon', 'laser_plant'], waveNumber: 18 },
 ];
 
@@ -121,12 +121,12 @@ export interface StoryChapterDef {
 }
 
 export const STORY_CHAPTERS: StoryChapterDef[] = [
-  { id: 1, title: 'Ch.1: First Roots', sproutQuote: '"Every strong garden begins with good soil and splash!"', lesson: 'Splash Basics', mapId: 'sunny_backyard', waves: 8, startingCash: 650 },
-  { id: 2, title: 'Ch.2: Armored March', sproutQuote: '"Iron Beetles shrug off tiny peas. Crack shells with Pineapples!"', lesson: 'Armor Breaking', mapId: 'sunny_backyard', waves: 9, startingCash: 800 },
-  { id: 3, title: 'Ch.3: Under the Lawn', sproutQuote: '"See those dirt mounds? Bombs and traps hit Burrowing Moles!"', lesson: 'Burrower Counters', mapId: 'sunny_backyard', waves: 10, startingCash: 950 },
-  { id: 4, title: 'Ch.4: Wings Overhead', sproutQuote: '"Put Bamboo Archers on raised beds to pick off Wasps!"', lesson: 'Anti-Air & Cliffs', mapId: 'enchanted_jungle', waves: 10, startingCash: 950 },
+  { id: 1, title: 'Ch.1: First Roots', sproutQuote: '"Every strong garden begins with Sprout Strikers and leaf splash!"', lesson: 'Splash Basics', mapId: 'sunny_backyard', waves: 8, startingCash: 650 },
+  { id: 2, title: 'Ch.2: Armored March', sproutQuote: '"Rhino Beetles shrug off tiny seeds. Crack shells with Pitcher Mortars!"', lesson: 'Armor Breaking', mapId: 'sunny_backyard', waves: 9, startingCash: 800 },
+  { id: 3, title: 'Ch.3: Under the Lawn', sproutQuote: '"See those dirt mounds? Nectar bombs and traps hit Burrowing Moles!"', lesson: 'Burrower Counters', mapId: 'sunny_backyard', waves: 10, startingCash: 950 },
+  { id: 4, title: 'Ch.4: Wings Overhead', sproutQuote: '"Put Bamboo Archers on raised beds to pick off Stinger Wasps!"', lesson: 'Anti-Air & Cliffs', mapId: 'enchanted_jungle', waves: 10, startingCash: 950 },
   { id: 5, title: 'Ch.5: Steam & Shatter', sproutQuote: '"Fire + Frost = Steam Burst! Watch those root links glow gold."', lesson: 'Element Synergies', mapId: 'enchanted_jungle', waves: 10, startingCash: 1200 },
-  { id: 6, title: 'Ch.6: Money Grows', sproutQuote: '"Greedy Pocket Mice steal cash! Place Walnut Walls before they slip by."', lesson: 'Farms & Path Walls', mapId: 'frosty_allotment', waves: 10, startingCash: 1100 },
+  { id: 6, title: 'Ch.6: Money Grows', sproutQuote: '"Greedy Pocket Mice steal cash! Place Ironwood Stumps before they slip by."', lesson: 'Farms & Path Walls', mapId: 'frosty_allotment', waves: 10, startingCash: 1100 },
   { id: 7, title: 'Ch.7: Blizzard Siege', sproutQuote: '"Chill shields towers near snowstorms. Keep Ghost Peppers lit!"', lesson: 'Hazard Management', mapId: 'frosty_allotment', waves: 12, startingCash: 1350 },
   { id: 8, title: 'Ch.8: Dual Meltdown', sproutQuote: '"Both magma lanes are hot! Cover the center with Sonar & Beams."', lesson: 'Dual Track Splits', mapId: 'volcano_greenhouse', waves: 12, startingCash: 1500 },
   { id: 9, title: 'Ch.9: Shifting Bridges', sproutQuote: '"The red bridge turns every 10 waves — watch your range rings!"', lesson: 'Adapting Chokepoints', mapId: 'zen_garden', waves: 12, startingCash: 1700 },

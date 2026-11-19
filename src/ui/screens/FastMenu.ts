@@ -30,7 +30,7 @@ export type HubWizardStep = 'mode' | 'map' | 'difficulty' | 'team';
 
 const GNOME_MILESTONES: Array<{ xp: number; unitId: string; label: string }> = [
   { xp: 100, unitId: 'bramble_snare', label: 'Bramble Snare' },
-  { xp: 300, unitId: 'walnut_wall', label: 'Walnut Wall' },
+  { xp: 300, unitId: 'walnut_wall', label: 'Ironwood Stump' },
   { xp: 600, unitId: 'sunflower_producer', label: 'Sunny Sprout' },
 ];
 

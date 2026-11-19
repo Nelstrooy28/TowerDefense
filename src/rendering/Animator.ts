@@ -25,6 +25,9 @@ export class TowerAnimator {
   private attackDuration = 0.25;
   private attackType:
     | 'projectile'
+    | 'cactus'
+    | 'pitcher'
+    | 'lily'
     | 'flytrap'
     | 'golem'
     | 'sonic'
@@ -78,11 +81,18 @@ export class TowerAnimator {
       this.attackDuration = 0.45;
       this.rootGripSpring.value = 0.92;
     } else if (unitId === 'pineapple_cannon') {
-      this.attackType = 'projectile';
+      this.attackType = 'pitcher';
+      this.attackDuration = 0.34;
+      this.recoilSpring.impulse(-2.2);
+      this.pitchSpring.impulse(2.6);
+      this.rootGripSpring.value = 0.92;
+    } else if (unitId === 'cactus_striker') {
+      this.attackType = 'cactus';
+      this.attackDuration = 0.26;
+      this.recoilSpring.impulse(-1.8);
+    } else if (unitId === 'ice_buds') {
+      this.attackType = 'lily';
       this.attackDuration = 0.28;
-      this.recoilSpring.impulse(-3.1);
-      this.pitchSpring.impulse(3.5);
-      this.rootGripSpring.value = 0.92; // heavy attack root grip (§3.3)
     } else if (unitId === 'sonic_bloom') {
       this.attackType = 'sonic';
       this.attackDuration = 0.3;
@@ -237,15 +247,27 @@ export class TowerAnimator {
       this.scaleSpring.z.value
     );
 
-    // Per-unit idle personalities (§6.1 + §7.1)
+    // Per-unit idle personalities (§6.1 + §7.1 + v6 art sheet)
     if (unitId === 'tomato_tosser') {
-      const baseY = (rig.headTurret.userData.baseY as number | undefined) ?? 0.72;
-      rig.headTurret.position.y = baseY + beatPulse * 0.09;
+      const baseY = (rig.headTurret.userData.baseY as number | undefined) ?? 0.88;
+      rig.headTurret.position.y = baseY + beatPulse * 0.08;
     } else if (unitId === 'cactus_striker') {
-      const bristle = hasTarget ? 1.07 + 0.04 * Math.sin(time * 9) : 1.0;
-      rig.headTurret.scale.setScalar(bristle);
+      const breathe = 1 + 0.02 * Math.sin(time * 3.2 + phi);
+      rig.headTurret.scale.set(1, breathe, 1);
+      if (!hasTarget) {
+        rig.jawUpper.rotation.y += dt * 0.55;
+      }
     } else if (unitId === 'pineapple_cannon' && !hasTarget) {
-      rig.headTurret.rotation.y = Math.sin(time * 1.5 + phi) * 0.35;
+      const swell = 1 + 0.025 * Math.sin(time * 2.4 + phi);
+      rig.headTurret.scale.set(swell, 1, swell);
+      rig.headTurret.rotation.y = Math.sin(time * 1.3 + phi) * 0.35;
+      rig.jawUpper.rotation.x = -0.14 + Math.sin(time * 3.8 + phi) * 0.1;
+    } else if (unitId === 'ice_buds') {
+      const spinMult = this.attackTimer > 0 ? 5.6 : 1.05;
+      for (const orb of rig.orbiters) {
+        const dir = (orb.userData.spinDir as number | undefined) ?? 1;
+        orb.rotation.y += dt * spinMult * dir;
+      }
     } else if (unitId === 'sonic_bloom' || unitId === 'sunflower_beacon') {
       const pulse = 1 + beatPulse * 0.14;
       rig.headTurret.scale.setScalar(pulse);
@@ -271,6 +293,23 @@ export class TowerAnimator {
       if (this.attackType === 'projectile') {
         rig.headTurret.position.z = this.recoilSpring.value * 0.28;
         rig.stemPivot.rotation.x = this.pitchSpring.value * 0.12;
+      } else if (this.attackType === 'cactus') {
+        const scope = p < 0.4 ? 1 - (p / 0.4) * 0.22 : 0.78 + ((p - 0.4) / 0.6) * 0.22;
+        rig.jawUpper.scale.set(scope, 1.0, scope);
+        rig.headTurret.position.z = this.recoilSpring.value * 0.15;
+      } else if (this.attackType === 'pitcher') {
+        if (p < 0.35) {
+          const sq = 1 - (p / 0.35) * 0.16;
+          rig.headTurret.scale.set(1.08, sq, 1.08);
+          rig.jawUpper.rotation.x = -0.95 * (p / 0.35);
+        } else {
+          const rec = (p - 0.35) / 0.65;
+          rig.headTurret.scale.set(1.0, 0.84 + rec * 0.16, 1.0);
+          rig.jawUpper.rotation.x = -0.95 * (1 - easeOutCubic(rec));
+        }
+      } else if (this.attackType === 'lily') {
+        const surge = 1 + Math.sin(p * Math.PI) * 0.14;
+        rig.headTurret.scale.setScalar(surge);
       } else if (this.attackType === 'bamboo') {
         const bend = p < 0.65 ? -(p / 0.65) * 0.42 : (1 - p) * 0.6;
         rig.stemPivot.rotation.x = bend;
@@ -495,6 +534,9 @@ export class EnemyAnimator {
                   : 0x4ade80;
         this.dissolveMat = DissolveMaterialPool.acquire(baseColor, edgeCol);
         if (this.dissolveMat) {
+          rig.bodyGroup.traverse((o) => {
+            if (o.userData.isCartoonOutline) o.visible = false;
+          });
           for (const m of rig.bodyMeshes) m.material = this.dissolveMat;
         }
       }

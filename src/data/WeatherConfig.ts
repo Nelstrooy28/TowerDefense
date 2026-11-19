@@ -101,7 +101,7 @@ export const WEATHERS: Record<WeatherId, WeatherDef> = {
     name: 'Pollen Bloom',
     icon: '🌼',
     color: '#facc15',
-    effectDesc: 'Money Tree +25% cash',
+    effectDesc: 'Solar Marigold +25% cash',
     visualDesc: 'Golden pollen clouds, flowers open on map',
     fireMult: 1.0,
     iceMult: 1.0,

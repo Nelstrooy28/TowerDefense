@@ -9,6 +9,9 @@ import { MAPS } from '../src/data/MapRegistry';
 import { VFX_RECIPES, ELEMENT_COLORS, getRecipeCountForTier } from '../src/data/VFXRecipes';
 import { Keybinds } from '../src/core/Keybinds';
 import { BugRigKit, BUG_RIG_DEFS } from '../src/rendering/bugs/BugRigKit';
+import { MeshFactory } from '../src/rendering/MeshFactory';
+import { ProceduralTextures } from '../src/rendering/ProceduralTextures';
+import { createCartoonOutlineMaterial } from '../src/rendering/ShaderLib';
 import { TowerEntity } from '../src/simulation/TowerEntity';
 import { PlacementSystem } from '../src/simulation/PlacementSystem';
 import { mapV1PotSkinToSoilSkin, migrateSaveToV2, migrateSaveToV3, SaveManager } from '../src/core/SaveManager';
@@ -198,5 +201,70 @@ describe('Garden Bastion TD v5 Systems', () => {
     expect(seen.has('Strongest')).toBe(true);
     expect(seen.has('Closest')).toBe(true);
     expect(seen.has('Weakest')).toBe(true);
+  });
+});
+
+describe('Garden Bastion TD v6 Art Sheet Models & Style', () => {
+  it('updates replaced unit display names, hex colors, and Needle Barrel Cactus Sniper fit', () => {
+    expect(getUnitById('tomato_tosser').name).toBe('Sprout Striker');
+    expect(getUnitById('pineapple_cannon').name).toBe('Pitcher Mortar');
+    expect(getUnitById('money_tree').name).toBe('Solar Marigold');
+    expect(getUnitById('ice_buds').name).toBe('Cryo Water-Lily');
+    expect(getUnitById('walnut_wall').name).toBe('Ironwood Stump');
+
+    const cactus = getUnitById('cactus_striker');
+    expect(cactus.name).toBe('Needle Barrel Cactus');
+    expect(cactus.rangeBase).toBe(12);
+    expect(cactus.projectilesBase).toBe(2);
+    expect(cactus.projectilesMax).toBe(2);
+    expect(cactus.primaryColor).toBe(0x1b5e20);
+    expect(cactus.secondaryColor).toBe(0xe91e8c);
+  });
+
+  it('updates replaced enemy display names and art-sheet palettes', () => {
+    expect(ENEMIES.garden_ant.name).toBe('Scout Ant');
+    expect(ENEMIES.garden_ant.primaryColor).toBe(0xa63a1e);
+    expect(ENEMIES.aphid_cluster.name).toBe('Aphid Hopper');
+    expect(ENEMIES.iron_beetle.name).toBe('Rhino Beetle');
+    expect(ENEMIES.iron_beetle.primaryColor).toBe(0x4b2a8c);
+    expect(ENEMIES.gargantuan_snail.name).toBe('Terracotta Snail');
+    expect(ENEMIES.spore_wasp.name).toBe('Stinger Wasp');
+    expect(ENEMIES.spore_wasp.primaryColor).toBe(0xfdd835);
+    expect(ENEMIES.sprinter_mantis.name).toBe('Brood Mantis');
+    expect(ENEMIES.sprinter_mantis.primaryColor).toBe(0xb3263a);
+  });
+
+  it('builds Lv0 and Lv5 rigs for all 6 v6 redesigned towers and Brood Mantis Queen mini-boss', () => {
+    const sixIds = [
+      'tomato_tosser',
+      'cactus_striker',
+      'pineapple_cannon',
+      'money_tree',
+      'ice_buds',
+      'walnut_wall',
+    ];
+    for (const id of sixIds) {
+      const rig0 = MeshFactory.buildTowerRig(id, 0, getUnitById(id).rarity, 'Keen I');
+      const rig5 = MeshFactory.buildTowerRig(id, 5, getUnitById(id).rarity, 'Keen I');
+      expect(rig0.root.children.length).toBeGreaterThanOrEqual(2);
+      expect(rig5.root.children.length).toBeGreaterThanOrEqual(2);
+    }
+
+    const mantisQueen = BugRigKit.buildBugRig('sprinter_mantis', { isMiniBoss: true });
+    expect(mantisQueen.crownMesh).toBeDefined();
+    expect(mantisQueen.mantisCoreMesh).toBeDefined();
+
+    const rhino = BugRigKit.buildBugRig('iron_beetle');
+    expect(rhino.shellHalves).toBeDefined();
+  });
+
+  it('provides 3-step toon ramp texture and cached cartoon outline materials', () => {
+    const ramp = ProceduralTextures.getToonRampTexture();
+    expect(ramp).toBeInstanceOf(THREE.DataTexture);
+    expect(ramp.image.width).toBe(3);
+
+    const outA = createCartoonOutlineMaterial(0x4caf50, 0.025);
+    const outB = createCartoonOutlineMaterial(0x4caf50, 0.025);
+    expect(outA).toBe(outB);
   });
 });

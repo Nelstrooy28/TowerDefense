@@ -916,10 +916,10 @@ export class MatchController {
       }
     }
 
-    // GTD Style Crowned Mini-Boss King on every 10th wave (that isn't already final boss wave)
+    // GTD Style Crowned Mini-Boss on every 10th wave (Brood Mantis Queen alternates with Terracotta Snail)
     if (!preview.isBossWave && this.currentWave > 0 && this.currentWave % 10 === 0 && this.difficultyId !== 'Easy') {
-      const kingType: EnemyTypeId = this.currentWave >= 30 ? 'burrowing_mole' : 'garden_ant';
-      const kingTitle = kingType === 'burrowing_mole' ? 'Mole King' : 'Ant King';
+      const kingType: EnemyTypeId = this.currentWave === 20 ? 'gargantuan_snail' : 'sprinter_mantis';
+      const kingTitle = kingType === 'sprinter_mantis' ? 'Brood Mantis Queen' : 'Terracotta Snail';
       this.spawnQueue.push({
         type: kingType,
         splineIdx: 0,
@@ -1741,13 +1741,15 @@ export class MatchController {
       }
     }
 
-    // Walnut Wall blocking & chew update
+    // Ironwood Stump blocking & 3-stage sap crack glow update
     for (let wi = this.towers.length - 1; wi >= 0; wi--) {
       const wall = this.towers[wi];
       if (!wall.def.isWall) continue;
+      let chewedThisFrame = false;
       for (const e of this.enemies) {
         if (e.isDead || e.def.isFlying) continue;
         if (Math.hypot(e.position.x - wall.position.x, e.position.z - wall.position.z) <= 1.35) {
+          chewedThisFrame = true;
           if (e.def.isBoss) {
             wall.wallHp -= 90 * simDt * 3;
           } else {
@@ -1756,8 +1758,18 @@ export class MatchController {
           }
         }
       }
+      if (chewedThisFrame && Math.random() < simDt * 6) {
+        this.vfx.spawnRecipe('soil_placement_clods', wall.position.x, 0.45, wall.position.z, 0x5a3a22);
+      }
+      const hpRatio = wall.wallMaxHp > 0 ? wall.wallHp / wall.wallMaxHp : 1;
+      for (const mat of wall.rig.emissiveParts) {
+        if (mat.userData.isStumpSapMat) {
+          mat.emissiveIntensity = hpRatio > 0.66 ? 1.25 : hpRatio > 0.33 ? 1.75 : 2.35;
+        }
+      }
       if (wall.wallHp <= 0) {
         this.vfx.spawnRecipe('root_burst_clods', wall.position.x, 0.4, wall.position.z);
+        this.vfx.spawnRecipe('fire_cinders', wall.position.x, 0.5, wall.position.z, 0xffa726);
         wall.destroy();
         this.towers.splice(wi, 1);
         this.rootNetwork.computeLinks(this.towers);
@@ -1929,6 +1941,7 @@ export class MatchController {
 
     if (t.def.id === 'tomato_tosser') {
       SynthAudio.play('tomato');
+      this.vfx.spawnRecipe('muzzle_puff', tx, ty + 0.12, tz, 0xd1d5db);
       this.projectiles.launch({
         kind: 'tomato',
         startX: tx,
@@ -1954,6 +1967,7 @@ export class MatchController {
       });
     } else if (t.def.id === 'cactus_striker') {
       SynthAudio.play('cactus');
+      this.vfx.spawnBeam(tx, ty + 0.35, tz, target.position.x, 0.55, target.position.z, 0xe91e8c, 0.35, 0.22);
       const count = t.getProjectilesCount();
       for (let i = 0; i < count; i++) {
         this.projectiles.launch({
@@ -2100,7 +2114,9 @@ export class MatchController {
     } else if (t.def.id === 'ice_buds') {
       SynthAudio.play('ice');
       t.iceHitCounter++;
-      this.vfx.spawnBeam(tx, ty, tz, target.position.x, 0.6, target.position.z, 0x38bdf8, 0.9, 0.14);
+      const rng = Math.min(6.0, t.getEffectiveRange(w.weatherRangeMult) * 0.55);
+      this.vfx.spawnShockwave(tx, 0.08, tz, rng, 0x9be7f5, 0.45);
+      this.vfx.spawnBeam(tx, ty, tz, target.position.x, 0.6, target.position.z, 0x9be7f5, 0.9, 0.14);
       this.vfx.spawnRecipe(t.level >= 5 ? 'snowfall_aura' : 'frost_shatter', target.position.x, 0.5, target.position.z);
       this.decals.spawn('frost', target.position.x, target.position.z, 1.5, 6);
       this.grass.addReaction(target.position.x, target.position.z, 2.0, 'frost', 2.0);
@@ -2252,36 +2268,72 @@ export class MatchController {
       }
     }
 
-    // Spore Stunner Wasp
+    // Stinger Wasp Dive-Sting Attack (1.2 s red warning ring -> swoop down -> yellow sting spark -> return)
     if (e.type === 'spore_wasp' && this.towers.length > 0) {
-      e.waspBombTimer -= dt;
-      if (e.waspBombTimer <= 0) {
-        e.waspBombTimer = 9.0;
-        const victim = this.towers[Math.floor(Math.random() * this.towers.length)];
-        this.vfx.spawnTelegraph(victim.position.x, victim.position.z, 1.4, 1.2);
-        this.projectiles.launch({
-          kind: 'spore_bomb',
-          startX: e.position.x,
-          startY: 1.8,
-          startZ: e.position.z,
-          targetEnemy: null,
-          targetTower: victim,
-          fallbackX: victim.position.x,
-          fallbackZ: victim.position.z,
-          speed: 8,
-          arcHeight: 2.0,
-          damage: 0,
-          splashRadius: 0,
-          isCrit: false,
-          isExplosive: false,
-          isLv5: false,
-          canRicochet: false,
-          sourceTower: null,
-          weatherDrift: 0,
-          weatherFireMult: 1,
-          weatherIceMult: 1,
-          weatherArcaneBonus: 0,
-        });
+      if (e.waspDivePhase === 'idle') {
+        e.waspBombTimer -= dt;
+        if (e.waspBombTimer <= 0) {
+          e.waspBombTimer = 9.0;
+          const victim = this.towers[Math.floor(Math.random() * this.towers.length)];
+          e.waspDivePhase = 'telegraph';
+          e.waspDiveTimer = 1.2;
+          e.waspTargetX = victim.position.x;
+          e.waspTargetZ = victim.position.z;
+          e.waspVictimTowerId = victim.id;
+          this.vfx.spawnTelegraph(victim.position.x, victim.position.z, 1.4, 1.2);
+        }
+      } else {
+        e.waspDiveTimer -= dt;
+        if (e.waspDivePhase === 'telegraph' && e.waspDiveTimer <= 0) {
+          e.waspDivePhase = 'diving';
+          e.waspDiveTimer = 0.28;
+        } else if (e.waspDivePhase === 'diving' && e.waspDiveTimer <= 0) {
+          const victim = this.towers.find((t) => t.id === e.waspVictimTowerId);
+          if (victim && victim.applyStun(3.5)) {
+            this.popups.spawnDamage(
+              victim.position.x,
+              victim.position.y + 1.2,
+              victim.position.z,
+              0,
+              'synergy',
+              '',
+              'STUNNED!'
+            );
+          }
+          this.vfx.spawnShockwave(e.waspTargetX, 0.08, e.waspTargetZ, 1.8, 0xfdd835, 0.35);
+          this.vfx.spawnRecipe('muzzle_ring_flash', e.waspTargetX, 1.0, e.waspTargetZ, 0xfdd835);
+          e.waspDivePhase = 'returning';
+          e.waspDiveTimer = 0.35;
+        } else if (e.waspDivePhase === 'returning' && e.waspDiveTimer <= 0) {
+          e.waspDivePhase = 'idle';
+          e.waspVictimTowerId = null;
+        }
+      }
+    }
+
+    // Brood Mantis Queen Mini-Boss: every 8 s runs a 1.2 s core-glow telegraph, then spawns 3 Brood Mantis
+    if (e.type === 'sprinter_mantis' && e.isMiniBoss) {
+      if (e.mantisTelegraphTimer > 0) {
+        e.mantisTelegraphTimer -= dt;
+        if (e.rig.mantisCoreMesh) {
+          const mat = e.rig.mantisCoreMesh.material as { emissiveIntensity?: number };
+          if (typeof mat.emissiveIntensity === 'number') {
+            mat.emissiveIntensity = 3.0;
+          }
+        }
+        if (e.mantisTelegraphTimer <= 0) {
+          this.vfx.spawnRecipe('muzzle_ring_flash', e.position.x, 0.9, e.position.z, 0x5fffd0);
+          for (let i = 0; i < 3; i++) {
+            this.spawnEnemy('sprinter_mantis', 0, Math.max(0, e.progress - 0.02 - i * 0.015), false);
+          }
+        }
+      } else {
+        e.mantisSpawnTimer -= dt;
+        if (e.mantisSpawnTimer <= 0) {
+          e.mantisSpawnTimer = 8.0;
+          e.mantisTelegraphTimer = 1.2;
+          this.vfx.spawnTelegraph(e.position.x, e.position.z, 2.4, 1.2);
+        }
       }
     }
 

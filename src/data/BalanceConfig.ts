@@ -420,11 +420,25 @@ export const REDEEM_CODES: Record<string, RedeemCodeDef> = {
   BLOOM: { code: 'BLOOM', seeds: 150, dewdrops: 1, tickets: 1, label: 'Spring Bloom (+150 🌱, +1 💧, +1 🎟)' },
   GARDENER: { code: 'GARDENER', seeds: 250, dewdrops: 0, tickets: 1, label: 'Survival Kit (+250 🌱, +1 🎟)' },
   BASTION5: { code: 'BASTION5', seeds: 400, dewdrops: 3, tickets: 2, label: 'v5 Launch Gift (+400 🌱, +3 💧, +2 🎟)' },
+  BASTION6: { code: 'BASTION6', seeds: 500, dewdrops: 4, tickets: 2, label: 'v6 Art Sheet Gift (+500 🌱, +4 💧, +2 🎟)' },
 };
 
-export const CURRENT_VERSION = '5.0.0';
+export const CURRENT_VERSION = '6.0.0';
 
 export const WHATS_NEW_NOTES = [
+  {
+    version: 'v6.0.0 — Art Sheet Redesign & Cel Style',
+    highlights: [
+      'Cel-Shaded Cartoon Art Style Across All Units & Pests: 3-step toon shading ramp, soft round highlights, and color-matched dark outlines (toggleable in Low quality tier).',
+      '6 Redesigned Tower Silhouettes: Sprout Striker (terracotta pot & trumpet stem), Needle Barrel Cactus (magenta scope sniper), Pitcher Mortar (violet-striped nectar jar), Solar Marigold (radiant amber-gold flower), Cryo Water-Lily (twin spinning ice lotus), and Ironwood Stump (mossy trunk with glowing amber sap cracks).',
+      '6 Redesigned Pest Enemies & Mini-Boss: Scout Ant, Aphid Hopper, Rhino Beetle (destructible shell halves), Terracotta Snail, Stinger Wasp (dive-sting attack), and Brood Mantis + Crowned Brood Mantis Queen mini-boss.',
+      'Re-rendered 2D Hotbar Portraits & Codex Bestiary matching the v6 palette and 3/4 art-sheet angle.',
+    ],
+    balanceNotes: [
+      'Needle Barrel Cactus Sniper Fit: range increased +20% (10–16 → 12–19.2), fires 2 heavy sniper needles (12–110 DMG) preserving volley DPS.',
+      'Wave 10/30 Crowned Mini-Boss introduces Brood Mantis Queen (spawns 3 Brood Mantis every 8 s after a 1.2 s core-glow telegraph).',
+    ],
+  },
   {
     version: 'v5.0.0 — Overgrown Polish & Walkable Hub',
     highlights: [

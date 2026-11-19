@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ProceduralTextures } from './ProceduralTextures';
+import { QualityManager } from '../core/QualityManager';
 
 export const GlobalShaderUniforms = {
   uTime: { value: 0 },
@@ -8,10 +9,12 @@ export const GlobalShaderUniforms = {
   uWindStrength: { value: 1.0 },
 };
 
+const OUTLINE_MAT_CACHE = new Map<string, THREE.ShaderMaterial>();
+
 export function applyToonRimShader(
   mat: THREE.MeshStandardMaterial,
   skyColorHex = 0x87ceeb,
-  rimStrength = 0.35
+  rimStrength = 0.2
 ): THREE.MeshStandardMaterial {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uRimColor = GlobalShaderUniforms.uRimColor;
@@ -25,14 +28,71 @@ export function applyToonRimShader(
       )
       .replace(
         '#include <dithering_fragment>',
-        `vec3 viewDirRim = normalize(vViewPosition);
-         float rimTerm = pow(1.0 - clamp(dot(normal, viewDirRim), 0.0, 1.0), 3.0) * uRimStrength;
-         gl_FragColor.rgb += uRimColor * rimTerm;
+        `vec3 nrmCel = normalize(normal);
+         vec3 viewDirRim = normalize(vViewPosition);
+         vec3 celLightDir = normalize(vec3(0.45, 0.85, 0.35));
+         float ndlCel = dot(nrmCel, celLightDir);
+         float celBand = ndlCel > 0.55 ? 1.0 : (ndlCel > 0.0 ? 0.8 : 0.45);
+         float specCel = step(0.72, pow(max(dot(reflect(-celLightDir, nrmCel), viewDirRim), 0.0), 24.0)) * 0.25;
+         float rimTerm = pow(1.0 - clamp(dot(nrmCel, viewDirRim), 0.0, 1.0), 3.0) * uRimStrength;
+         gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb * (celBand * 1.15) + vec3(specCel), 0.72) + uRimColor * rimTerm;
          #include <dithering_fragment>`
       );
   };
   GlobalShaderUniforms.uRimColor.value.setHex(skyColorHex);
   return mat;
+}
+
+/**
+ * Doc 01 §2: Inverted-hull cartoon outline with darkened part color (0.25x).
+ */
+export function createCartoonOutlineMaterial(baseHex: number, width = 0.025): THREE.ShaderMaterial {
+  const c = new THREE.Color(baseHex).multiplyScalar(0.25);
+  const key = `${c.getHexString()}_${width.toFixed(3)}`;
+  const cached = OUTLINE_MAT_CACHE.get(key);
+  if (cached) return cached;
+
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uOutlineColor: { value: c },
+      uWidth: { value: width },
+    },
+    side: THREE.BackSide,
+    vertexShader: `
+      uniform float uWidth;
+      void main() {
+        float nLen = length(normal);
+        vec3 nDir = nLen > 0.0001 ? normal / nLen : normalize(position + vec3(0.0001));
+        vec3 extruded = position + nDir * uWidth;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(extruded, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uOutlineColor;
+      void main() {
+        gl_FragColor = vec4(uOutlineColor, 1.0);
+      }
+    `,
+  });
+  OUTLINE_MAT_CACHE.set(key, mat);
+  return mat;
+}
+
+/**
+ * Reuses `mesh.geometry` with inverted-hull shader; hidden automatically on Low tier.
+ */
+export function attachCartoonOutline(
+  mesh: THREE.Mesh,
+  baseHex: number,
+  width = 0.025
+): THREE.Mesh {
+  const outline = new THREE.Mesh(mesh.geometry, createCartoonOutlineMaterial(baseHex, width));
+  outline.userData.isCartoonOutline = true;
+  outline.castShadow = false;
+  outline.receiveShadow = false;
+  outline.visible = QualityManager.settings.tier !== 'Low';
+  mesh.add(outline);
+  return outline;
 }
 
 export function createDissolveShaderMaterial(

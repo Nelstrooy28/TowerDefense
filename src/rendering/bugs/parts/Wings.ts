@@ -20,6 +20,12 @@ export function buildBugWings(
   if (def.wings.kind === 'wasp') {
     wingColor = 0xfef9c3;
     opacity = 0.65;
+  } else if (def.wings.kind === 'wasp_dual') {
+    wingColor = 0xfef3c7;
+    opacity = 0.42;
+  } else if (def.wings.kind === 'aphid_mini') {
+    wingColor = 0xe0f2fe;
+    opacity = 0.5;
   } else if (def.wings.kind === 'glow') {
     wingColor = 0x4ade80;
     emissiveColor = 0x22c55e;
@@ -45,6 +51,27 @@ export function buildBugWings(
     emissiveIntensity: emissiveInt,
   });
   matsOut.push(wingMat);
+
+  if (def.wings.kind === 'wasp_dual') {
+    // Two pairs (4 total translucent wings) for Stinger Wasp
+    for (let pair = 0; pair < 2; pair++) {
+      const pScale = pair === 0 ? 1.0 : 0.68;
+      const pZ = pair === 0 ? 0.14 : -0.02;
+      for (const sx of [-1, 1]) {
+        const pivot = new THREE.Group();
+        pivot.position.set(sx * 0.12, wingY + 0.04, pZ);
+        const plane = new THREE.Mesh(BUG_SHARED_GEO.wingPlane, wingMat);
+        plane.scale.set((span / 0.65) * pScale, 1, (span / 0.65) * pScale * 0.72);
+        plane.rotation.x = -Math.PI / 2;
+        plane.rotation.z = sx * (pair === 0 ? -0.25 : -0.48);
+        plane.position.set(sx * span * 0.46 * pScale, 0, -0.08);
+        pivot.add(plane);
+        bodyGroup.add(pivot);
+        wings.push(pivot);
+      }
+    }
+    return wings;
+  }
 
   for (const sx of [-1, 1]) {
     const pivot = new THREE.Group();

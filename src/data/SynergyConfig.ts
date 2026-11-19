@@ -32,7 +32,7 @@ export const SYNERGIES: SynergyDef[] = [
     requires: ['burn', 'chill'],
     effectDesc: '1.5 s blind (enemies slowed 30%) + 120% bonus hit',
     vfxDesc: 'White steam cloud, hiss',
-    partnerUnitNames: ['Ghost Pepper', 'Ice Buds', 'Elemental Chrono-Bloom'],
+    partnerUnitNames: ['Ghost Pepper', 'Cryo Water-Lily', 'Elemental Chrono-Bloom'],
   },
   {
     id: 'cauterize',
@@ -43,7 +43,7 @@ export const SYNERGIES: SynergyDef[] = [
     requires: ['burn', 'bleed'],
     effectDesc: 'Bleed ends, deals all remaining bleed damage at once',
     vfxDesc: 'Red-orange flash, sizzle',
-    partnerUnitNames: ['Ghost Pepper', 'Cactus Striker', 'Venus Flytrap', 'Elemental Chrono-Bloom'],
+    partnerUnitNames: ['Ghost Pepper', 'Needle Barrel Cactus', 'Venus Flytrap', 'Elemental Chrono-Bloom'],
   },
   {
     id: 'ice_skate',
@@ -54,7 +54,7 @@ export const SYNERGIES: SynergyDef[] = [
     requires: ['chill', 'knockback'],
     effectDesc: 'Knockback distance ×2',
     vfxDesc: 'Ice trail under enemy',
-    partnerUnitNames: ['Ice Buds', 'Sonic Bloom', 'Elemental Chrono-Bloom'],
+    partnerUnitNames: ['Cryo Water-Lily', 'Sonic Bloom', 'Elemental Chrono-Bloom'],
   },
   {
     id: 'shatter',
@@ -65,7 +65,7 @@ export const SYNERGIES: SynergyDef[] = [
     requires: ['freeze', 'heavy'],
     effectDesc: '+50% damage, removes freeze',
     vfxDesc: 'Ice cube explosion',
-    partnerUnitNames: ['Ice Buds', 'Pineapple Cannon', 'Venus Flytrap', 'Ancient Moss Golem'],
+    partnerUnitNames: ['Cryo Water-Lily', 'Pitcher Mortar', 'Venus Flytrap', 'Ancient Moss Golem'],
   },
   {
     id: 'conduct',

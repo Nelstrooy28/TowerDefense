@@ -6,12 +6,125 @@ export type DecalType = 'tomato' | 'scorch' | 'frost' | 'slime' | 'crater' | 'vi
 
 class ProceduralTexturesImpl {
   private contactShadowTex: THREE.CanvasTexture | null = null;
-  private noiseTex: THREE.CanvasTexture | null = null;
-  private runeStripTex: THREE.CanvasTexture | null = null;
+  private noiseTex: THREE.Texture | null = null;
+  private runeStripTex: THREE.Texture | null = null;
   private softCircleTex: THREE.CanvasTexture | null = null;
   private statusSheetTex: THREE.CanvasTexture | null = null;
+  private toonRampTex: THREE.DataTexture | null = null;
+  private pitcherStripesTex: THREE.CanvasTexture | null = null;
+  private stumpTopTex: THREE.CanvasTexture | null = null;
+  private stumpCrackTex: THREE.CanvasTexture | null = null;
+  private snailShellTex: THREE.CanvasTexture | null = null;
   private decalTextures = new Map<DecalType, THREE.CanvasTexture>();
   private portraitUrls = new Map<string, string>();
+
+  /**
+   * Doc 01 §2: 3-step toon ramp texture (shadow 0.45, mid 0.80, light 1.0).
+   */
+  public getToonRampTexture(): THREE.DataTexture {
+    if (this.toonRampTex) return this.toonRampTex;
+    const data = new Uint8Array([
+      115, 115, 115, 255, // 0.45 shadow
+      204, 204, 204, 255, // 0.80 mid
+      255, 255, 255, 255, // 1.00 light
+    ]);
+    const tex = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);
+    tex.minFilter = THREE.NearestFilter;
+    tex.magFilter = THREE.NearestFilter;
+    tex.needsUpdate = true;
+    this.toonRampTex = tex;
+    return tex;
+  }
+
+  public getPitcherStripesTexture(): THREE.CanvasTexture | null {
+    if (this.pitcherStripesTex) return this.pitcherStripesTex;
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#bbc34a';
+    ctx.fillRect(0, 0, 256, 128);
+    ctx.fillStyle = '#7b3fa0';
+    for (let i = 0; i < 5; i++) {
+      const x = i * (256 / 5) + 8;
+      ctx.fillRect(x, 0, 14, 128);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    this.pitcherStripesTex = tex;
+    return tex;
+  }
+
+  public getStumpTopTexture(): THREE.CanvasTexture | null {
+    if (this.stumpTopTex) return this.stumpTopTex;
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#7ca33a';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = '#c89b6c';
+    ctx.beginPath();
+    ctx.arc(64, 64, 52, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#8d5b32';
+    ctx.lineWidth = 2.5;
+    for (const r of [14, 26, 38, 48]) {
+      ctx.beginPath();
+      ctx.arc(64, 64, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    this.stumpTopTex = new THREE.CanvasTexture(canvas);
+    return this.stumpTopTex;
+  }
+
+  public getStumpSapCrackTexture(): THREE.CanvasTexture | null {
+    if (this.stumpCrackTex) return this.stumpCrackTex;
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, 256, 128);
+    ctx.strokeStyle = '#ffa726';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 5; i++) {
+      const x = 22 + i * 50;
+      ctx.beginPath();
+      ctx.moveTo(x, 122);
+      ctx.lineTo(x - 8, 78);
+      ctx.lineTo(x + 7, 46);
+      ctx.lineTo(x - 3, 18);
+      ctx.stroke();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    this.stumpCrackTex = tex;
+    return tex;
+  }
+
+  public getSnailShellTexture(): THREE.CanvasTexture | null {
+    if (this.snailShellTex) return this.snailShellTex;
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#a8ddb5';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = '#daf7e1';
+    for (let i = 0; i < 6; i++) {
+      ctx.fillRect(i * 22, 0, 7, 128);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    this.snailShellTex = tex;
+    return tex;
+  }
 
   public getContactShadowTexture(): THREE.CanvasTexture {
     if (this.contactShadowTex) return this.contactShadowTex;
@@ -91,8 +204,21 @@ class ProceduralTexturesImpl {
     return this.statusSheetTex;
   }
 
-  public getNoiseTexture(): THREE.CanvasTexture {
+  /** Returns a minimal repeating DataTexture when running outside a DOM (e.g. Node unit tests). */
+  private createHeadlessFallbackTexture(): THREE.DataTexture {
+    const tex = new THREE.DataTexture(new Uint8Array(16).fill(200), 2, 2, THREE.RGBAFormat);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  public getNoiseTexture(): THREE.Texture {
     if (this.noiseTex) return this.noiseTex;
+    if (typeof document === 'undefined') {
+      this.noiseTex = this.createHeadlessFallbackTexture();
+      return this.noiseTex;
+    }
     const size = 128;
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -138,8 +264,12 @@ class ProceduralTexturesImpl {
     return this.noiseTex;
   }
 
-  public getRuneStripTexture(): THREE.CanvasTexture {
+  public getRuneStripTexture(): THREE.Texture {
     if (this.runeStripTex) return this.runeStripTex;
+    if (typeof document === 'undefined') {
+      this.runeStripTex = this.createHeadlessFallbackTexture();
+      return this.runeStripTex;
+    }
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 64;
@@ -338,107 +468,186 @@ class ProceduralTexturesImpl {
     ctx.arc(64, 58, 44, 0, Math.PI * 2);
     ctx.fill();
 
-    // Natural Grassy Turf Hillock & Ground Roots
-    ctx.fillStyle = '#573b26';
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 3.5;
-    ctx.beginPath();
-    ctx.ellipse(64, 108, 42, 16, 0, Math.PI, 0, false);
-    ctx.lineTo(106, 120);
-    ctx.lineTo(22, 120);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.strokeStyle = '#6b4423';
-    ctx.lineWidth = 6;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(64, 90);
-    ctx.quadraticCurveTo(46, 98, 34, 112);
-    ctx.moveTo(64, 90);
-    ctx.quadraticCurveTo(82, 98, 94, 112);
-    ctx.moveTo(64, 92);
-    ctx.lineTo(64, 112);
-    ctx.stroke();
-
-    ctx.fillStyle = '#22c55e';
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 2.5;
-    for (const dir of [-1, 1]) {
-      ctx.beginPath();
-      ctx.ellipse(64 + dir * 20, 92, 14, 6, dir * 0.35, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-
     const primary = '#' + unit.primaryColor.toString(16).padStart(6, '0');
     const secondary = '#' + unit.secondaryColor.toString(16).padStart(6, '0');
     const accent = '#' + unit.accentColor.toString(16).padStart(6, '0');
 
-    // Stem rooted in earth
-    ctx.strokeStyle = '#16a34a';
-    ctx.lineWidth = 9;
-    ctx.beginPath();
-    ctx.moveTo(64, 96);
-    ctx.lineTo(64, 58);
-    ctx.stroke();
+    const skipDefaultSoil =
+      unit.id === 'tomato_tosser' || unit.id === 'ice_buds' || unit.id === 'walnut_wall';
+
+    if (!skipDefaultSoil) {
+      // Natural Grassy Turf Hillock & Ground Roots
+      ctx.fillStyle = '#573b26';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.ellipse(64, 108, 42, 16, 0, Math.PI, 0, false);
+      ctx.lineTo(106, 120);
+      ctx.lineTo(22, 120);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.strokeStyle = '#6b4423';
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(64, 90);
+      ctx.quadraticCurveTo(46, 98, 34, 112);
+      ctx.moveTo(64, 90);
+      ctx.quadraticCurveTo(82, 98, 94, 112);
+      ctx.moveTo(64, 92);
+      ctx.lineTo(64, 112);
+      ctx.stroke();
+
+      ctx.fillStyle = '#22c55e';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2.5;
+      for (const dir of [-1, 1]) {
+        ctx.beginPath();
+        ctx.ellipse(64 + dir * 20, 92, 14, 6, dir * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      if (unit.id !== 'pineapple_cannon' && unit.id !== 'cactus_striker' && unit.id !== 'money_tree') {
+        ctx.strokeStyle = '#16a34a';
+        ctx.lineWidth = 9;
+        ctx.beginPath();
+        ctx.moveTo(64, 96);
+        ctx.lineTo(64, 58);
+        ctx.stroke();
+      }
+    }
 
     ctx.lineWidth = 3.5;
     ctx.strokeStyle = '#0f172a';
 
     if (unit.id === 'tomato_tosser') {
-      ctx.fillStyle = primary;
+      // Terracotta pot + curly green stem + cream-mouth trumpet shooter
+      ctx.fillStyle = '#c8643b';
       ctx.beginPath();
-      ctx.arc(64, 46, 22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = secondary;
-      ctx.beginPath();
-      ctx.ellipse(64, 26, 14, 5, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    } else if (unit.id === 'cactus_striker') {
-      ctx.fillStyle = primary;
-      ctx.beginPath();
-      ctx.roundRect(50, 22, 28, 54, 14);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = accent;
-      for (let i = 0; i < 6; i++) {
-        const y = 30 + i * 8;
-        ctx.fillRect(43, y, 7, 3);
-        ctx.fillRect(78, y, 7, 3);
-      }
-    } else if (unit.id === 'pineapple_cannon') {
-      ctx.fillStyle = secondary;
-      ctx.beginPath();
-      ctx.moveTo(48, 30);
-      ctx.lineTo(64, 12);
-      ctx.lineTo(80, 30);
+      ctx.moveTo(40, 82);
+      ctx.lineTo(88, 82);
+      ctx.lineTo(80, 114);
+      ctx.lineTo(48, 114);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = primary;
+      ctx.fillStyle = '#a84d2a';
+      ctx.fillRect(36, 76, 56, 9);
+      ctx.strokeRect(36, 76, 56, 9);
+
+      ctx.strokeStyle = '#4caf50';
+      ctx.lineWidth = 8;
       ctx.beginPath();
-      ctx.ellipse(64, 52, 20, 24, 0, 0, Math.PI * 2);
+      ctx.moveTo(64, 78);
+      ctx.bezierCurveTo(44, 64, 80, 52, 62, 38);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3;
+      ctx.fillStyle = '#4caf50';
+      ctx.beginPath();
+      ctx.moveTo(50, 44);
+      ctx.lineTo(84, 24);
+      ctx.lineTo(84, 54);
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(62, 42, 28, 12);
-      ctx.strokeRect(62, 42, 28, 12);
+      ctx.fillStyle = '#f5e9c8';
+      ctx.beginPath();
+      ctx.ellipse(86, 39, 7, 14, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else if (unit.id === 'cactus_striker') {
+      // Round ribbed teal barrel + 8-petal magenta flower scope + white spines
+      ctx.fillStyle = '#1b5e20';
+      ctx.beginPath();
+      ctx.ellipse(64, 66, 26, 28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#2e7d32';
+      ctx.lineWidth = 3;
+      for (const ox of [-10, 0, 10]) {
+        ctx.beginPath();
+        ctx.moveTo(64 + ox, 40);
+        ctx.lineTo(64 + ox, 92);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#fafafa';
+      ctx.lineWidth = 2.5;
+      for (const py of [52, 66, 78]) {
+        ctx.beginPath();
+        ctx.moveTo(38, py);
+        ctx.lineTo(31, py - 3);
+        ctx.moveTo(90, py);
+        ctx.lineTo(97, py - 3);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3;
+      ctx.fillStyle = '#e91e8c';
+      for (const ox of [-14, 0, 14]) {
+        ctx.beginPath();
+        ctx.ellipse(64 + ox, 34, 10, 7, ox * 0.03, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(64, 34, 6, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (unit.id === 'pineapple_cannon') {
+      // Swollen chartreuse/violet striped nectar pitcher with hinged lid
+      ctx.fillStyle = '#bbc34a';
+      ctx.beginPath();
+      ctx.ellipse(64, 66, 25, 24, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#7b3fa0';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(52, 46);
+      ctx.lineTo(52, 86);
+      ctx.moveTo(76, 46);
+      ctx.lineTo(76, 86);
+      ctx.stroke();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3;
+      ctx.fillStyle = '#7b3fa0';
+      ctx.beginPath();
+      ctx.ellipse(68, 38, 17, 6, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#bbc34a';
+      ctx.beginPath();
+      ctx.ellipse(62, 24, 15, 7, -0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     } else if (unit.id === 'money_tree') {
-      ctx.fillStyle = primary;
+      // Curved green stem + tilted warm gold flower + glowing amber center
+      ctx.strokeStyle = '#558b2f';
+      ctx.lineWidth = 7;
       ctx.beginPath();
-      ctx.arc(50, 44, 18, 0, Math.PI * 2);
-      ctx.arc(78, 44, 18, 0, Math.PI * 2);
-      ctx.arc(64, 30, 20, 0, Math.PI * 2);
+      ctx.moveTo(64, 92);
+      ctx.quadraticCurveTo(56, 68, 64, 48);
+      ctx.stroke();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2.5;
+      ctx.fillStyle = '#ffb300';
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.ellipse(64 + Math.cos(a) * 20, 44 + Math.sin(a) * 16, 9, 5, a, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#ff6f00';
+      ctx.beginPath();
+      ctx.arc(64, 44, 13, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = accent;
-      ctx.font = 'bold 24px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('$', 64, 52);
     } else if (unit.id === 'ghost_pepper') {
       ctx.fillStyle = primary;
       ctx.beginPath();
@@ -468,13 +677,25 @@ class ProceduralTexturesImpl {
       ctx.arc(64, 46, 7, 0, Math.PI * 2);
       ctx.stroke();
     } else if (unit.id === 'ice_buds') {
-      ctx.fillStyle = secondary;
-      for (let i = -1; i <= 1; i++) {
+      // Water disc + mint notched lily pad + ice cyan crystal lotus
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.45)';
+      ctx.beginPath();
+      ctx.ellipse(64, 92, 46, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#5ec9a8';
+      ctx.beginPath();
+      ctx.ellipse(64, 86, 36, 13, 0, 0.2, Math.PI * 1.9);
+      ctx.lineTo(64, 86);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#9be7f5';
+      for (let i = -2; i <= 2; i++) {
         ctx.beginPath();
-        ctx.moveTo(64 + i * 16, 18 + Math.abs(i) * 8);
-        ctx.lineTo(74 + i * 16, 48);
-        ctx.lineTo(64 + i * 16, 68);
-        ctx.lineTo(54 + i * 16, 48);
+        ctx.moveTo(64 + i * 11, 36 + Math.abs(i) * 8);
+        ctx.lineTo(72 + i * 11, 66);
+        ctx.lineTo(64 + i * 11, 80);
+        ctx.lineTo(56 + i * 11, 66);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
@@ -585,11 +806,36 @@ class ProceduralTexturesImpl {
       ctx.fill();
       ctx.stroke();
     } else if (unit.id === 'walnut_wall') {
-      ctx.fillStyle = primary;
+      // Dark walnut gnarled trunk + moss rim + amber glowing sap crack veins
+      ctx.fillStyle = '#5a3a22';
       ctx.beginPath();
-      ctx.ellipse(64, 48, 22, 28, 0, 0, Math.PI * 2);
+      ctx.moveTo(38, 44);
+      ctx.lineTo(90, 44);
+      ctx.lineTo(100, 108);
+      ctx.lineTo(28, 108);
+      ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.fillStyle = '#7ca33a';
+      ctx.beginPath();
+      ctx.ellipse(64, 44, 28, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#c89b6c';
+      ctx.beginPath();
+      ctx.ellipse(64, 42, 20, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffa726';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(52, 58);
+      ctx.lineTo(58, 82);
+      ctx.lineTo(50, 102);
+      ctx.moveTo(76, 62);
+      ctx.lineTo(72, 92);
+      ctx.stroke();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3.5;
     } else {
       // Chrono-Bloom
       ctx.fillStyle = primary;
